@@ -10,12 +10,14 @@ Ejecutar: python -m sita --servidor   (o: uvicorn sita.app:app --port 8000)
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
@@ -68,10 +70,23 @@ class Respuesta(BaseModel):
 
 
 @app.post("/consultar", response_model=Respuesta)
-def consultar(c: Consulta) -> Respuesta:
+async def consultar(c: Consulta, request: Request) -> Respuesta:
     t0 = time.perf_counter()
     log.info("SITA: consulta recibida (sesión %s): %s", c.sesion_id, c.texto[:80])
-    t = orq().procesar(c.texto, sesion_id=c.sesion_id)
+    # Botón «Detener» de la interfaz: el navegador corta la conexión. Se vigila la desconexión mientras la consulta
+    # corre en un hilo y, si ocurre, se activa el evento para que no se hagan más llamadas al LLM.
+    cancelar = threading.Event()
+    tarea = asyncio.ensure_future(asyncio.to_thread(lambda: orq().procesar(c.texto, sesion_id=c.sesion_id,
+                                                                           cancelar=cancelar)))
+    while not tarea.done():
+        await asyncio.wait({tarea}, timeout=0.5)
+        if not tarea.done() and not cancelar.is_set() and await request.is_disconnected():
+            cancelar.set()
+            log.info("SITA: el estudiante detuvo la consulta (sesión %s); se cancela", c.sesion_id)
+    t = await tarea
+    if t.get("cancelada"):
+        log.info("SITA: consulta cancelada a los %.1f s · traza %s", time.perf_counter() - t0, t.get("traza_id"))
+        raise HTTPException(499, "Consulta detenida por el estudiante.")
     log.info("SITA: respondida en %.1f s · flujo %s · traza %s", time.perf_counter() - t0, t.get("flujo"), t.get("traza_id"))
     v = t.get("verificacion") or {}
     ultimo = (v.get("intentos") or [{}])[-1].get("fallas") or {}

@@ -176,6 +176,11 @@
     background: var(--accent); color: var(--accent-ink); display: grid; place-items: center;
   }
   #enviar:disabled { opacity: .35; cursor: default; }
+  #enviar .ico-detener { display: none; }
+  #enviar.detener .ico-enviar { display: none; }
+  #enviar.detener .ico-detener { display: block; }
+  #enviar.detener { background: var(--ink); color: var(--bg); }
+  #enviar:not(:disabled):hover { filter: brightness(1.1); }
   .aviso { text-align: center; font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
 </style>
 </head>
@@ -195,8 +200,9 @@
 <footer>
   <form class="caja" id="form">
     <textarea id="entrada" rows="1" maxlength="1000" placeholder="Preguntale a SITA sobre tu trayectoria…" autocomplete="off"></textarea>
-    <button id="enviar" type="submit" aria-label="Enviar" disabled>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+    <button id="enviar" type="submit" aria-label="Enviar" title="Enviar" disabled>
+      <svg class="ico-enviar" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      <svg class="ico-detener" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect width="14" height="14" rx="2.5" fill="currentColor"/></svg>
     </button>
   </form>
   <div class="aviso">SITA explica lo que está en el grafo de conocimiento (Neo4j). Confirmá las decisiones importantes con el asesor académico.</div>
@@ -217,6 +223,7 @@ const $ = id => document.getElementById(id);
 const chat = $("chat"), scroll = $("scroll"), form = $("form"), entrada = $("entrada"), enviar = $("enviar");
 let sesion = nuevaSesion();
 let ocupado = false;
+let enCurso = null;   // { ctrl, detenida } de la consulta que se está procesando
 
 function nuevaSesion() { return "web-" + Math.random().toString(36).slice(2, 10); }
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
@@ -259,6 +266,8 @@ async function preguntar(q) {
 
   const t0 = performance.now();
   const ctrl = new AbortController();
+  const actual = { ctrl, detenida: false };
+  enCurso = actual;
   const LIMITE = 10 * 60;   // s: igual que LLM_TIMEOUT por defecto
   const reloj = setInterval(() => {
     const s = Math.round((performance.now() - t0) / 1000);
@@ -280,14 +289,29 @@ async function preguntar(q) {
     cuerpo.appendChild(el("div", "texto", formatear(j.respuesta)));
     cuerpo.appendChild(meta(j, ((performance.now() - t0) / 1000)));
   } catch (err) {
-    cuerpo.innerHTML = "";
-    const msg = err.name === "AbortError" ? `no hubo respuesta en ${LIMITE / 60} minutos` : err.message;
-    cuerpo.appendChild(el("div", "texto error", "No pude procesar la consulta: " + esc(msg)));
+    if (actual.detenida) {
+      // Detenida por el estudiante (como en Claude): se quita el turno y la pregunta vuelve a la caja para editarla.
+      tu.remove(); ta.remove();
+      if (!entrada.value.trim()) { entrada.value = q; autoalto(); }
+      if (!chat.children.length) bienvenida();
+    } else {
+      cuerpo.innerHTML = "";
+      const msg = err.name === "AbortError" ? `no hubo respuesta en ${LIMITE / 60} minutos` : err.message;
+      cuerpo.appendChild(el("div", "texto error", "No pude procesar la consulta: " + esc(msg)));
+    }
   } finally {
     clearInterval(reloj);
     logo.classList.remove("girando");
+    if (enCurso === actual) enCurso = null;
     ocupado = false; actualizarBoton(); entrada.focus(); abajo();
+    entrada.setSelectionRange(entrada.value.length, entrada.value.length);
   }
+}
+
+function detener() {
+  if (!enCurso) return;
+  enCurso.detenida = true;
+  enCurso.ctrl.abort();   // el servidor detecta la desconexión y no hace más llamadas al LLM
 }
 
 function meta(j, seg) {
@@ -394,14 +418,25 @@ function razonamiento(t) {
 }
 
 /* ---------- caja de texto ---------- */
-function actualizarBoton() { enviar.disabled = ocupado || !entrada.value.trim(); }
+function actualizarBoton() {
+  // Mientras piensa, el botón de enviar pasa a ser «Detener» (siempre habilitado).
+  enviar.classList.toggle("detener", ocupado);
+  enviar.disabled = !ocupado && !entrada.value.trim();
+  const etiqueta = ocupado ? "Detener (Esc)" : "Enviar";
+  enviar.setAttribute("aria-label", etiqueta); enviar.title = etiqueta;
+}
 function autoalto() { entrada.style.height = "auto"; entrada.style.height = Math.min(entrada.scrollHeight, 200) + "px"; }
 entrada.addEventListener("input", () => { autoalto(); actualizarBoton(); });
 entrada.addEventListener("keydown", e => {
-  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    if (!ocupado) form.requestSubmit();   // Enter nunca detiene: solo el botón o Esc
+  }
 });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && ocupado) { e.preventDefault(); detener(); } });
 form.addEventListener("submit", e => {
   e.preventDefault();
+  if (ocupado) { detener(); return; }
   const q = entrada.value; entrada.value = ""; autoalto(); preguntar(q);
 });
 $("nuevo").onclick = () => { if (ocupado) return; sesion = nuevaSesion(); bienvenida(); entrada.focus(); };

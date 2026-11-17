@@ -54,3 +54,33 @@ def test_cli_traza_audita_una_respuesta_guardada(tmp_path, monkeypatch, capsys):
     salida = capsys.readouterr().out
     assert "M3_Q1_RIESGO" in salida and "Física I" in salida
     assert cli.cmd_traza("noexiste0000", como_json=False) == 1
+
+
+def test_consulta_detenida_no_hace_mas_llamadas_al_llm(tmp_path):
+    """Botón «Detener»: con el evento activado, el orquestador corta antes de la siguiente llamada al LLM, registra la
+    traza como cancelada y las esperas de reintento se interrumpen en el acto."""
+    import threading
+    import time as _time
+
+    from fakes import FakeKB, FakeLLM, config
+    from sita import cancelacion
+    from sita.orquestador import Orquestador
+
+    llm = FakeLLM({}, [])
+    o = Orquestador(FakeKB(), llm, config(tmp_path))
+    evento = threading.Event()
+    evento.set()
+    t = o.procesar("Legajo 48115, ¿qué me conviene cursar?", cancelar=evento)
+    assert t["cancelada"] and t["flujo"] == "cancelada" and t["respuesta"] == ""
+    assert llm.llamadas == []                       # ni siquiera el enrutador
+    assert not cancelacion.cancelada()              # el hilo queda limpio para la próxima consulta
+
+    cancelacion.activar(evento)
+    t0 = _time.perf_counter()
+    try:
+        cancelacion.esperar(30)
+        raise AssertionError("la espera no se interrumpió")
+    except cancelacion.ConsultaCancelada:
+        assert _time.perf_counter() - t0 < 1
+    finally:
+        cancelacion.activar(None)

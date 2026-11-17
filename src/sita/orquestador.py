@@ -16,6 +16,7 @@ Flujo (patrón sándwich ampliado a cuatro submódulos):
 from __future__ import annotations
 
 import json
+import threading
 import time
 import uuid
 from collections import OrderedDict
@@ -23,6 +24,7 @@ from datetime import datetime
 
 from pydantic import ValidationError
 
+from . import cancelacion
 from . import respaldo as resp_det
 from .catalogo import Catalogo
 from .esquemas import INTENCIONES, ORDEN_MODULOS, Enrutamiento
@@ -74,16 +76,22 @@ class Orquestador:
         self.trazas: "OrderedDict[str, dict]" = OrderedDict()
 
     # ================================================================== API pública
-    def procesar(self, texto: str, sesion_id: str = "local") -> dict:
+    def procesar(self, texto: str, sesion_id: str = "local", cancelar: threading.Event | None = None) -> dict:
+        """`cancelar`: evento que activa el servidor si el estudiante detiene la consulta (botón «Detener»)."""
         t0 = time.time()
         traza = {"traza_id": uuid.uuid4().hex[:12], "fecha": datetime.now().isoformat(timespec="seconds"),
                  "sesion_id": sesion_id, "entrada": texto, "modelo": getattr(self.llm, "nombre", "?")}
         self.kb.registro.clear()
+        cancelacion.activar(cancelar)
         try:
             self._procesar(limpiar_texto(texto), sesion_id, traza)
+        except cancelacion.ConsultaCancelada:
+            traza.update(flujo="cancelada", respuesta="", cancelada=True)
         except Exception as exc:  # noqa: BLE001 - nunca se muestra un traceback al estudiante
             traza["error"] = f"{type(exc).__name__}: {exc}"
             self._cerrar(traza, mensaje_error(exc, self.cfg.llm_timeout), flujo="error")
+        finally:
+            cancelacion.activar(None)
         traza["consultas_ejecutadas"] = list(self.kb.registro)
         traza["segundos"] = round(time.time() - t0, 2)
         self._guardar(traza)
@@ -162,6 +170,7 @@ class Orquestador:
         user = f"Mensaje: {texto}"  # mismo formato que los ejemplos del prompt (M1)
         esquema = Enrutamiento.model_json_schema()
         for _ in range(2):
+            cancelacion.verificar()  # «Detener»: no se hace otra llamada al LLM
             crudo = self.llm.chat(PROMPT_ENRUTADOR, user, json_mode=True, max_tokens=1500, json_schema=esquema)
             intentos.append(crudo)
             try:
@@ -376,6 +385,7 @@ class Orquestador:
     def _explicar(self, paquete: dict) -> tuple[str, dict]:
         system = prompt_explicacion(self.cfg.ids_en_cuerpo)
         user = json.dumps(paquete, ensure_ascii=False, default=str, indent=1)
+        cancelacion.verificar()  # «Detener»: no se hace otra llamada al LLM
         borrador = preparar(texto_plano(self.llm.chat(system, user, max_tokens=4000)))
         fallas = verificar(borrador, paquete, self.cfg.ids_en_cuerpo)
         verif = {"intentos": [{"texto": borrador, "fallas": fallas}], "respaldo_deterministico": False}
@@ -386,6 +396,7 @@ class Orquestador:
         user2 = (f"{user}\n\nBORRADOR_ANTERIOR:\n{borrador}\n\nCORRECCIÓN OBLIGATORIA: el borrador no pasó el control de "
                  f"fidelidad ({instruccion_correccion(a_corregir)}). Reescribí la respuesta completa corrigiendo solo "
                  "eso, sin agregar datos que no estén en las secciones.")
+        cancelacion.verificar()  # «Detener»: no se hace otra llamada al LLM
         respuesta = preparar(texto_plano(self.llm.chat(system, user2, max_tokens=4000)))
         fallas2 = verificar(respuesta, paquete, self.cfg.ids_en_cuerpo)
         verif["intentos"].append({"texto": respuesta, "fallas": fallas2})

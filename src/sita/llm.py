@@ -15,6 +15,7 @@ import time
 
 import requests
 
+from .cancelacion import esperar
 from .config import Config
 from .textos import limpiar_texto
 
@@ -86,14 +87,14 @@ class LLM:
                 espera = self._espera_429(r)
                 log.warning("SITA: el proveedor del LLM limitó el uso (429); espero %.0f s y reintento (%d/5)",
                             espera, intento + 1)
-                time.sleep(espera)
+                esperar(espera)  # se interrumpe si el estudiante detiene la consulta
                 continue
             if r.status_code in (500, 502, 503, 504) and intento < 5:
                 # proveedor saturado o caído un momento (p. ej. Gemini 503 «high demand»): espera creciente
                 espera = (3, 6, 12, 20, 30)[intento]
                 log.warning("SITA: el proveedor del LLM respondió %s (saturado); espero %d s y reintento (%d/5)",
                             r.status_code, espera, intento + 1)
-                time.sleep(espera)
+                esperar(espera)  # se interrumpe si el estudiante detiene la consulta
                 continue
             if r.status_code >= 400:
                 raise ErrorLLM(f"{self.nombre} respondió {r.status_code}: {r.text[:400]}")
