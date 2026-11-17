@@ -16,7 +16,7 @@ sita = "sita.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-sita = ["web/*.html"]
+sita = ["web/*.html", "web/*.png"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SITA · Asistente de trayectoria académica</title>
+<link rel="icon" type="image/png" href="logo.png">
 <style>
   :root {
     --bg: #ffffff;
@@ -67,6 +68,7 @@
     padding: 12px 20px; flex: 0 0 auto;
   }
   .marca { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px; }
+  .logo-img { width: 32px; height: 32px; border-radius: 8px; display: block; flex: 0 0 auto; }
   .logo {
     width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
     background: linear-gradient(135deg, #2f6fdb, #7a5af5); color: #fff; font-size: 13px; font-weight: 700;
@@ -188,7 +190,7 @@
 
 <header>
   <div class="marca">
-    <div class="logo">S</div>
+    <img class="logo-img" src="logo.png" alt="SITA" width="32" height="32">
     SITA
     <span class="estado" id="estado"><span class="punto" id="punto"></span><span id="estado-txt">conectando…</span></span>
   </div>

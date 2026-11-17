@@ -142,6 +142,18 @@ def config_js() -> Response:
     return Response('window.SITA_API = "";\n', media_type="application/javascript")
 
 
+_LOGO = Path(__file__).parent / "web" / "logo.png"
+
+
+@app.get("/logo.png", include_in_schema=False)
+@app.get("/favicon.ico", include_in_schema=False)
+def logo() -> Response:
+    """Logotipo de SITA (encabezado de la interfaz y pestaña del navegador)."""
+    if not _LOGO.exists():
+        raise HTTPException(404, "Sin logotipo.")
+    return Response(_LOGO.read_bytes(), media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
+
 PAGINA = """<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SITA · Asistente de trayectoria académica</title>
