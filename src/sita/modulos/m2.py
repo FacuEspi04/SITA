@@ -91,10 +91,28 @@ def pistas_riesgo_sobrecarga(rs) -> list[str]:
     return [txt]
 
 
+def desglose_carga(t: dict) -> dict | None:
+    """Componentes de la carga total (corrección de la cátedra, E2E-02/04): las horas de las asignaturas evaluadas
+    para el período MÁS las de las anuales en curso. Sin este dato explícito, el LLM listaba las asignaturas
+    (24,25 h) y saltaba al total (31 h). Solo se informa si los componentes suman el total registrado."""
+    items, anuales, total = t.get("items_evaluados") or [], t.get("carga_anuales_en_curso_h") or 0, t.get("carga_h")
+    if not items or not anuales or total is None:
+        return None
+    del_periodo = round(sum(i.get("horas_semanales") or 0 for i in items), 2)
+    if abs(del_periodo + anuales - total) > 0.05:
+        return None
+    return {"asignaturas_del_periodo_h": del_periodo, "anuales_en_curso_h": anuales, "total_h": total}
+
+
 def lectura_guiada(t: dict) -> list[str]:
     pistas = pistas_carga(t.get("carga_h"), t.get("capacidad_h"), t.get("holgura_h"), t.get("tamano_base"),
                           t.get("tamano_admisible"), t.get("ajustes"), t.get("tope_declarado"))
-    if t.get("carga_anuales_en_curso_h"):
+    d = t.get("desglose_carga")
+    if d:
+        pistas.append(f"La carga total de {fmt_num(d['total_h'])} h se compone de {fmt_num(d['asignaturas_del_periodo_h'])} h "
+                      f"de las asignaturas evaluadas para el período más {fmt_num(d['anuales_en_curso_h'])} h semanales "
+                      "de asignaturas anuales en curso; si se detallan horas por asignatura, hay que incluir las anuales.")
+    elif t.get("carga_anuales_en_curso_h"):
         pistas.append(f"La carga incluye {fmt_num(t['carga_anuales_en_curso_h'])} h semanales de asignaturas "
                       "anuales en curso.")
     pistas += pistas_riesgo_sobrecarga(t.get("riesgo_sobrecarga"))
@@ -125,5 +143,7 @@ def ejecutar(kb, intencion: str, p: dict) -> Seccion:
                          "Todavía no hay una evaluación de carga registrada para vos.")
     t = dict(r)
     t["glosario_reglas"] = _completar_glosario(t)
+    if desglose_carga(t):
+        t["desglose_carga"] = desglose_carga(t)
     t["lectura_guiada"] = lectura_guiada(t)
     return Seccion("M2", intencion, CAPACIDAD_M2, "M2_CAPACIDAD", params, t, resultado_crudo=r)

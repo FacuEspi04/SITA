@@ -8,6 +8,9 @@ normativas del caso»). Cada control nuevo está pensado contra un error real ob
   magnitudes_cruzadas ..... «confiabilidad 0,79» cuando 0,79 era la adecuación (M2, caso Ana)
   causa_de_exclusion ...... «por limitaciones de capacidad» cuando la causa era el tope (M4, caso Martina)
   instituciones_inventadas  «consultá con Bedelía», que no figuraba en el resultado (M3, caso E4)
+  causa_de_corte .......... «quedó sin evaluar por la habilitación normativa» cuando el corte era X-01 (E2E-05)
+  desglose_incompleto ..... desglose de la carga que no suma el total: omitía las anuales en curso (E2E-02/04)
+  escenario_parcial ....... con horas hipotéticas, carga y plan se mostraban como recalculados (E2E-04)
 
 Los controles se dividen en GRAVES (si persisten tras la reescritura, se usa la respuesta de respaldo
 determinística) y LEVES (forma: se pide reescritura y, si persisten, se registran).
@@ -17,12 +20,13 @@ from __future__ import annotations
 import json
 import re
 
-from .textos import (RE_CORRELATIVIDAD, RE_REGLA, ids_de_regla, limpiar_texto, norm, recorrer, sin_acentos)
+from .textos import (RE_CORRELATIVIDAD, RE_REGLA, fmt_num, ids_de_regla, limpiar_texto, norm, recorrer, sin_acentos)
 
 GRAVES = {"vacia", "numeros_sin_respaldo", "ids_sin_respaldo", "tipo_de_decision", "orden_de_destrabe",
           "cobertura_normativa", "causa_de_exclusion", "magnitudes_cruzadas", "instituciones_inventadas",
           "porcentaje_o_probabilidad", "idioma", "sin_dictamen", "requisito_para_rendir", "escenario_hipotetico",
-          "etiqueta_inventada", "llave_inventada", "riesgo_negado"}
+          "etiqueta_inventada", "llave_inventada", "riesgo_negado", "causa_de_corte", "desglose_incompleto",
+          "escenario_parcial"}
 
 INSTRUCCION = {
     "vacia": "escribí la respuesta completa",
@@ -48,6 +52,12 @@ INSTRUCCION = {
     "riesgo_negado": "riesgo bajo no es ausencia de riesgo: decí «tu riesgo de atraso es bajo»",
     "llave_inventada": "solo las asignaturas con es_llave verdadero son «llave»; las demás nombralas sin ese adjetivo",
     "etiqueta_inventada": "usá solo las etiquetas (alta, media, baja…) que figuran en los datos; si no hay, decí que no hay dato",
+    "causa_de_corte": ("el corte se debe a la calidad de los datos de la historia académica (datos viejos, contradictorios "
+                       "o poco confiables), no a la habilitación ni a las correlativas"),
+    "desglose_incompleto": ("si desglosás la carga, incluí todos sus componentes (también las horas de asignaturas "
+                            "anuales en curso) para que la suma dé el total"),
+    "escenario_parcial": ("aclará que solo el riesgo de atraso se simuló con esas horas: la carga y el plan son los de tu "
+                          "situación registrada y no se recalcularon"),
 }
 
 JERGA = ["json", "neo4j", "cypher", "grafo", "traza", "lectura guiada", "base de datos", "seccion", "modulo m"]
@@ -288,6 +298,91 @@ def magnitudes_cruzadas(resp: str, paquete: dict) -> list[str]:
     return problemas
 
 
+RE_CORTE = re.compile(r"cort\w*|detuv\w*|deten\w*|sin evaluar|no se (evalu\w*|pudo evaluar|emit\w*)|"
+                      r"qued\w* sin|no pudo aplicarse|no (pude|puedo|podemos|se puede) (evaluar|armar|calcular|darte)")
+RE_CAUSA_HABILITACION = re.compile(r"\b(porque|por|debido a|ya que|a causa de|dado que)\b[^.;:]{0,50}?"
+                                   r"(habilitaci\w*|correlativ\w*|no estas habilitad\w*)"
+                                   r"|\b(cort|detuv|deten)\w*\s+(en|por)\s+(la|las|el)?\s*(habilitaci|correlativ)\w*")
+RE_NEGADA = re.compile(r"\bno (es|son|se debe|tiene|por)\b|\bni\b|\bno\s*$")
+
+
+def _corte_por_calidad_del_dato(paquete: dict) -> bool:
+    ctx = paquete.get("contexto") or {}
+    if ctx.get("corte_en") == "M1" and ctx.get("estado_consulta") == "cortada":
+        return True
+    return any("X-01" in str(n.get("motivo", "")) for n in paquete.get("no_evaluado") or [])
+
+
+def causa_de_corte(resp: str, paquete: dict) -> list[str]:
+    """Corrección de la cátedra (E2E-05): un corte por X-01 (calidad del dato) no se puede atribuir a la habilitación
+    normativa ni a las correlatividades. Error real: «quedaron sin evaluar porque la regla que controla la
+    habilitación normativa no pudo aplicarse»."""
+    if not _corte_por_calidad_del_dato(paquete):
+        return []
+    for o in _oraciones(resp):
+        so = sin_acentos(o)
+        if not RE_CORTE.search(so):
+            continue
+        for m in RE_CAUSA_HABILITACION.finditer(so):
+            previo = so[max(0, m.start() - 12):m.start()]
+            if RE_NEGADA.search(m.group(0)) or RE_NEGADA.search(previo):
+                continue
+            return [f"atribuye el corte a la habilitación o a las correlativas («{o.strip()[:120]}»); la causa es la "
+                    "calidad del dato de la historia académica (X-01)"]
+    return []
+
+
+def _horas_junto_a(nombre: str, horas, texto: str) -> bool:
+    """¿El texto asocia esas horas a esa asignatura en la misma oración? («6,75 h de IA» / «IA, con 6,75 h»)."""
+    h = re.escape(str(horas if isinstance(horas, str) else f"{horas:g}").replace(".", ","))
+    n = re.escape(sin_acentos(nombre))
+    return bool(re.search(h + r"\s*(h|horas)\b[^.;\n]{0,70}?" + n, texto) or
+                re.search(n + r"[^.;\n]{0,70}?" + h + r"\s*(h|horas)\b", texto))
+
+
+def desglose_incompleto(resp: str, paquete: dict) -> list[str]:
+    """Corrección de la cátedra (E2E-02 y E2E-04): el total de carga era correcto (31 h), pero el detalle por
+    asignatura sumaba 24,25 h porque omitía las 6,75 h de la anual en curso (Proyecto Final). No alcanza con que
+    cada número esté en los datos: si la respuesta desglosa un total, tienen que estar todos sus componentes."""
+    t = sin_acentos(resp)
+    for s in _secciones(paquete):
+        r = s["resultado"]
+        d = r.get("desglose_carga") if s.get("modulo") == "M2" else None
+        if not d:
+            continue
+        detalladas = [i for i in r.get("items_evaluados") or []
+                      if i.get("asignatura") and i.get("horas_semanales") is not None
+                      and _horas_junto_a(i["asignatura"], i["horas_semanales"], t)]
+        if len(detalladas) >= 2 and not re.search(r"anual|proyecto final", t):
+            return [f"detalla las horas de {len(detalladas)} asignaturas pero omite las {fmt_num(d['anuales_en_curso_h'])} h "
+                    f"de asignaturas anuales en curso: el detalle no suma el total de {fmt_num(d['total_h'])} h"]
+    return []
+
+
+RE_TEMA_REGISTRADO = re.compile(r"\bcarga\b|capacidad|holgura|sobrecarga|\bplan\b")
+RE_NO_RECALCULADO = re.compile(r"no se (recalcul|modific|ajust|simul|volv\w* a calcular)\w*|sin recalcul\w*|"
+                               r"no (cambia|cambian|varia|varian)\b|(situacion|datos?|valores?) registrad\w*|"
+                               r"(son|siguen siendo|corresponden a) (los|las|el|la) de (tu|la) situacion")
+
+
+def escenario_parcial(resp: str, paquete: dict) -> list[str]:
+    """Corrección de la cátedra (E2E-04): con horas hipotéticas solo se simula el riesgo de atraso. Si la respuesta
+    menciona carga, capacidad o plan, tiene que aclarar que son los registrados y que no se recalcularon.
+    Error real: «el riesgo de atraso sube a alto cuando solo podés dedicar 9 h; hoy tenés una carga de 31 h… por esa
+    razón el plan se recortó a tres materias», sin decir que carga y plan no corresponden a la simulación."""
+    if not paquete.get("escenario_parcial"):
+        return []
+    t = sin_acentos(resp)
+    if not RE_TEMA_REGISTRADO.search(t):
+        return []
+    for o in _oraciones(resp):
+        so = sin_acentos(o)
+        if RE_TEMA_REGISTRADO.search(so) and RE_NO_RECALCULADO.search(so):
+            return []
+    return ["menciona la carga o el plan sin aclarar que son los registrados y que no se recalcularon con las horas "
+            "hipotéticas (solo se simuló el riesgo de atraso)"]
+
+
 def instituciones_inventadas(resp: str, paquete: dict) -> list[str]:
     t, base = sin_acentos(resp), sin_acentos(json.dumps(paquete, ensure_ascii=False))
     return [i for i in INSTITUCIONES if i in t and i not in base]
@@ -364,7 +459,8 @@ def escenario_hipotetico(resp: str, paquete: dict) -> list[str]:
 
 
 ETIQUETAS_FEM = {"confiabilidad": "confiabilidad", "adecuacion": "adecuacion"}
-ETIQUETAS_MASC = {"riesgo de atraso": ("riesgo_atraso", "riesgo_de_atraso"), "riesgo de sobrecarga": ("riesgo_sobrecarga",)}
+ETIQUETAS_MASC = {"riesgo de atraso": ("riesgo_atraso", "riesgo_de_atraso", "riesgo_registrado"),  # E2E-04: «de medio a alto»
+                  "riesgo de sobrecarga": ("riesgo_sobrecarga",)}
 
 
 def etiqueta_inventada(resp: str, paquete: dict) -> list[str]:
@@ -499,6 +595,9 @@ def verificar(respuesta: str, paquete: dict, ids_en_cuerpo: bool = False) -> dic
         "sin_dictamen": sin_dictamen(r, paquete),
         "requisito_para_rendir": requisito_para_rendir(r, paquete),
         "escenario_hipotetico": escenario_hipotetico(r, paquete),
+        "causa_de_corte": causa_de_corte(r, paquete),
+        "desglose_incompleto": desglose_incompleto(r, paquete),
+        "escenario_parcial": escenario_parcial(r, paquete),
         "etiqueta_inventada": etiqueta_inventada(r, paquete),
         "llave_inventada": llave_inventada(r, paquete),
         "riesgo_negado": riesgo_negado(r, paquete),

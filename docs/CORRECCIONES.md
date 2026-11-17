@@ -56,9 +56,41 @@ Resultado de la corrida: 16 de 17 casos consultaron los submódulos esperados. A
 | C-44 | Auditoría | No había forma de auditar una respuesta ya guardada sin volver a llamar al LLM; la evidencia de M3 no mostraba las asignaturas llave | Nuevo comando `sita --traza <ID>` que lee el log JSONL; la evidencia de M3 lista las asignaturas llave con su grado | `test_cli_traza_audita_una_respuesta_guardada` |
 | C-31 | Consola de Windows | Los colores se veían como «←[1;36m»; decía «relacións» | Se habilitan los colores ANSI en Windows; se corrigió el plural | — |
 
+## Correcciones de la devolución de la cátedra sobre la entrega final (17/11/2026)
+
+La devolución señaló que el verificador comparaba números con la evidencia, pero no las **causas** ni la **completitud** de las explicaciones. Cada observación sobre el código quedó corregida en tres capas: el dato que recibe el LLM, una regla del prompt de explicación y un control grave del verificador, que fuerza la reescritura y, si el error persiste, la respuesta de respaldo determinística. Las pruebas usan el texto real que había generado el LLM y están en `tests/test_correcciones_catedra.py`.
+
+Sobre las 41 respuestas completas registradas en `logs/interacciones_pg3.jsonl`, los controles nuevos marcan exactamente las 7 corridas de E2E-02, E2E-04 y E2E-05 que tenían estos errores y no cambian el resultado de ninguna otra.
+
+| Id | Caso | Error observado | Corrección | Prueba |
+|---|---|---|---|---|
+| C-45 | E2E-05 Sofía | El corte se atribuía a la habilitación normativa («quedaron sin evaluar porque la regla que controla la habilitación normativa no pudo aplicarse») cuando lo produce X-01 por la calidad del dato. El origen era el propio texto del orquestador: «la consulta se cortó en la habilitación normativa» | Nuevo motivo del corte en M1 (calidad del dato, «no es una falta de correlativas»); `causa_del_corte` en el contexto que recibe el LLM; regla 11b del prompt; control grave `causa_de_corte` | `test_e2e05_...` |
+| C-46 | E2E-02 y E2E-04 Juan | El total de carga era correcto (31 h), pero el detalle por asignatura sumaba 24,25 h: omitía las 6,75 h de la asignatura anual en curso (Proyecto Final) | M2 calcula `desglose_carga` (asignaturas del período + anuales en curso = total, solo si cierra) y lo incluye en la lectura guiada; regla 12g del prompt; control grave `desglose_incompleto`: si la respuesta detalla horas por asignatura, tiene que incluir las anuales | `test_m2_desglose_...`, `test_e2e02_...` |
+| C-47 | E2E-04 Juan (9 h) | Con horas hipotéticas, M3 recalcula el riesgo de atraso, pero la respuesta mostraba la carga (31 h) y el plan recortado sin aclarar que no se recalcularon | El orquestador agrega `escenario_parcial` al paquete (qué se simuló y qué quedó con los valores registrados); regla 12a del prompt; control grave `escenario_parcial`; el respaldo determinístico incluye la aclaración | `test_e2e04_...` |
+| C-48 | E2E-04 (al probar C-47) | `etiqueta_inventada` no tomaba la etiqueta de `riesgo_registrado_en_PG2`: «pasaría de medio a alto» podía marcarse como inventado | La etiqueta del riesgo registrado cuenta como dato válido del riesgo de atraso (igual que en `magnitudes_cruzadas`) | `test_e2e04_respuesta_correcta_pasa` |
+| C-49 | Despliegue | Gemini respondió 503 («high demand») y el cliente solo reintentaba ante 429: la consulta fallaba en el acto | `llm.py` reintenta ante 500, 502, 503 y 504 con espera creciente (3, 6, 12, 20 y 30 s), lo registra en el log y muestra un mensaje claro si persiste | — |
+| C-50 | Configuración | En una copia anterior de `.env.example` había una cadena comentada con formato de clave API | `.env.example` solo tiene marcadores vacíos. **Acción del grupo:** revocar esa clave en el proveedor y generar una nueva | — |
+
+### Modelo utilizado en cada corrida (observación 4)
+
+Cada interacción guarda el modelo en el campo `modelo` de su traza, y la interfaz web lo muestra en el encabezado y en el panel «Cómo lo resolvió». Según `logs/interacciones_pg3.jsonl`:
+
+| Fecha | Modelo | Interacciones | Casos |
+|---|---|---|---|
+| 12/11/2026 | `openai/gpt-oss-120b` (Groq) | 33 | Primera corrida de la batería (`sita --demo`) |
+| 13/11/2026 | `openai/gpt-oss-120b` (Groq) | 20 | Segunda corrida de la batería |
+| 13/11/2026 | `gemini-3.5-flash` (API compatible con OpenAI) | 5 | Reejecución de E2E-01, E2E-03, E2E-06, E2E-07 y FUN-03 |
+
+Las correcciones C-45 a C-48 se validaron sin LLM (pruebas offline con los textos reales). Falta reejecutar E2E-02, E2E-04 y E2E-05 contra la base y el modelo reales, y anotar acá el modelo de esa corrida.
+
+### Observaciones que no se resuelven con código
+
+- **Parámetros sin validar** (55 h semanales de dedicación sostenible, factores de estudio, centros y dispersiones de las funciones de pertenencia): siguen marcados como reglas candidatas o firmes bajo supuesto, y las respuestas lo advierten («conviene confirmarlo con el asesor académico»). Requieren contrastarse con el asesor antes de orientar decisiones reales.
+- **Historias nuevas:** el asistente trabaja sobre las conclusiones ya calculadas en el grafo para siete estudiantes. Incorporar una historia nueva, validarla, volver a ejecutar las reglas y obtener un plan actualizado desde la interfaz queda como trabajo futuro.
+
 ## Validaciones realizadas al armar el paquete
 
 - Las 17 plantillas de la lista blanca, más la consulta visual de auditoría, pasan el analizador oficial de Neo4j (`@neo4j-cypher/language-support`, `lintCypherQuery`) sin errores ni avisos.
-- Pasan las 66 pruebas offline: orquestador, cortes, enriquecimiento, verificador contra los errores reales de PI4, esquemas, lista blanca y API.
+- Pasan las 76 pruebas offline (66 originales y 10 de la devolución de la cátedra): orquestador, cortes, enriquecimiento, verificador contra los errores reales de PI4 y de la corrida final, esquemas, lista blanca y API.
 - Pendiente con la base real: `python -m sita --verificar`, `--verificar-difuso` y las pruebas de integración y E2E.
 - Las cuatro plantillas de M1 del paquete son idénticas, comparadas en forma automática, a las de `sita_m1.py` (PI4). De ese script se incorporaron: la espera ante el 429 leyendo el «try again in…» de Groq, la salida estructurada con esquema en Ollama, el formato «Mensaje: …» del enrutador, la detección de jerga interna (ids `Q-…`, «regla candidata») y de portugués con diacríticos, la conversión a coma decimal, el aviso de reserva que agrega Python sin pedir una reescritura, el id de la Consulta del grafo en la línea «Fundamento:» y los mensajes de error comprensibles.

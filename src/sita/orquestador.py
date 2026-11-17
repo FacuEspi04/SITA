@@ -39,10 +39,19 @@ MSG_ALCANCE = ("Solo puedo ayudarte con tu trayectoria en Ingeniería en Sistema
                "una materia, tu carga y capacidad, tu riesgo de atraso, qué materias son llave y qué te conviene cursar.")
 
 MOTIVO_CORTE = {
-    "M1": ("La consulta se cortó en la habilitación normativa: con los datos actuales de tu historia académica el "
-           "sistema no emite juicios (regla X-01). Primero hay que actualizar la historia."),
+    # Corrección de la cátedra (E2E-05): el corte en M1 NO es una restricción de habilitación ni de correlatividades;
+    # lo produce X-01 por la calidad del dato. El texto anterior («se cortó en la habilitación normativa») llevaba al
+    # LLM a atribuirle la causa a la habilitación.
+    "M1": ("La consulta se detuvo antes de evaluar esta parte por la calidad de los datos de tu historia académica "
+           "(regla X-01: datos desactualizados, contradictorios o poco confiables). No es una falta de correlativas: "
+           "primero hay que actualizar o corregir la historia."),
     "M2": ("La consulta se cortó en carga y capacidad porque faltan datos de tu contexto (regla X-02): sin ellos no "
            "se estima la carga ni se arma un plan (regla X-03). Los dictámenes de habilitación se conservan."),
+}
+CAUSA_CORTE = {
+    "M1": ("calidad del dato de la historia académica (regla X-01): no es una restricción de correlatividades ni un "
+           "dictamen de habilitación"),
+    "M2": "faltan datos del contexto del estudiante para estimar la carga (reglas X-02 y X-03)",
 }
 MOTIVO_ENRIQUECIMIENTO = {
     "criticidad_causa_raiz": "Indica cuánto pesa en el plan de estudios la materia que hay que destrabar primero.",
@@ -340,11 +349,17 @@ class Orquestador:
     def _paquete(self, texto: str, ctx: dict | None, secciones: list[Seccion], no_eval: list[dict]) -> dict:
         contexto = None
         if ctx:
+            cortada = ctx.get("estado") == "cortada"
             contexto = limpiar_vacios({"estudiante": ctx.get("estudiante"), "periodo": ctx.get("periodo"),
                                        "estado_consulta": ctx.get("estado"), "corte_en": ctx.get("corte_en"),
+                                       "causa_del_corte": CAUSA_CORTE.get(ctx.get("corte_en")) if cortada else None,
                                        "confiabilidad": ctx.get("confiabilidad"), "reserva": ctx.get("reserva")})
-        return {"pregunta": texto, "contexto": contexto or {}, "secciones": [s.para_llm() for s in secciones],
-                "no_evaluado": no_eval}
+        paquete = {"pregunta": texto, "contexto": contexto or {}, "secciones": [s.para_llm() for s in secciones],
+                   "no_evaluado": no_eval}
+        parcial = escenario_parcial(secciones)
+        if parcial:
+            paquete["escenario_parcial"] = parcial
+        return paquete
 
     def _explicar(self, paquete: dict) -> tuple[str, dict]:
         system = prompt_explicacion(self.cfg.ids_en_cuerpo)
@@ -412,6 +427,23 @@ class Orquestador:
                 f.write(json.dumps(traza, ensure_ascii=False, default=str) + "\n")
         except OSError:
             pass
+
+
+def escenario_parcial(secciones: list[Seccion]) -> dict | None:
+    """Corrección de la cátedra (E2E-04): con horas hipotéticas, M3 recalcula el riesgo de atraso, pero M2 y M4 siguen
+    mostrando lo registrado para el escenario original. La diferencia tiene que quedar explícita en la respuesta:
+    una simulación parcial no es una nueva evaluación completa de la trayectoria."""
+    simuladas = [s for s in secciones if s.estado == "ok" and (s.resultado or {}).get("escenario_hipotetico")]
+    registradas = sorted({s.modulo for s in secciones if s.estado == "ok" and s.modulo in ("M2", "M4")},
+                         key=ORDEN_MODULOS.get)
+    if not (simuladas and registradas):
+        return None
+    horas = simuladas[0].parametros.get("horas_hipoteticas")
+    no_recalculado = [x for m in registradas for x in {"M2": ["la carga", "la capacidad"], "M4": ["el plan recomendado"]}[m]]
+    lista = ", ".join(no_recalculado[:-1]) + " y " + no_recalculado[-1]
+    return {"horas_hipoteticas": horas, "simulado": "el riesgo de atraso", "no_recalculado": no_recalculado,
+            "aclaracion": (f"Solo el riesgo de atraso se simuló con {horas:g} horas semanales; {lista} corresponden "
+                           "a tu situación registrada y no se recalcularon con esas horas.")}
 
 
 def _json_de(crudo: str) -> str:

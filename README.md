@@ -53,7 +53,7 @@ Si no hiciste `pip install -e .`, ejecutá los comandos desde esta carpeta con `
 
 ```bash
 sita --traza 8e8986b3e7c7                                  # audita una respuesta guardada, sin llamar al LLM
-python -m pytest                                          # 66 pruebas sin Neo4j ni LLM (dobles de prueba)
+python -m pytest                                          # 76 pruebas sin Neo4j ni LLM (dobles de prueba)
 SITA_TEST_NEO4J=1 python -m pytest tests/test_integracion_neo4j.py -v      # valores de PG2 contra la base real
 SITA_TEST_E2E=1 LLM_PAUSA=20 python -m pytest tests/test_e2e_llm.py -v     # casos integrados de punta a punta
 ```
