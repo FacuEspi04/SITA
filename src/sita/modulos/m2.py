@@ -21,9 +21,11 @@ RETURN {
   horas_trabajo_semanales: ctx.horas_trabajo_semanales,
   carga_h: round(ev.carga_horas, 2), capacidad_h: ev.capacidad_horas, holgura_h: round(ev.holgura_horas, 2),
   carga_anuales_en_curso_h: ev.carga_anuales_en_curso, anuales_en_curso: ev.anuales_en_curso,
-  parametros_capacidad: [(pm:ParametroModelo)
-                         WHERE pm.id IN ['dedicacion_total_sostenible', 'factor_estudio', 'horas_preparacion_final'] |
-                         {id: pm.id, valor: pm.valor, unidad: pm.unidad, estado: pm.estado, descripcion: pm.descripcion}],
+  parametros_capacidad: COLLECT {
+    MATCH (pm:ParametroModelo)
+    WHERE pm.id IN ['dedicacion_total_sostenible', 'factor_estudio', 'horas_preparacion_final']
+    RETURN {id: pm.id, valor: pm.valor, unidad: pm.unidad, estado: pm.estado, descripcion: pm.descripcion} AS parametro
+    ORDER BY parametro.id},
   riesgo_sobrecarga: {etiqueta: rs.etiqueta, valor: round(rs.valor, 2),
                       reglas: [(rs)-[j:JUSTIFICADO_POR]->(r:ReglaDifusa) | {regla: r.id, alfa: round(j.alfa, 2)}],
                       sin_dato: rs.antecedentes_sin_dato},

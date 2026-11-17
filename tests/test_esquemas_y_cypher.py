@@ -37,3 +37,13 @@ def test_plantillas_solo_lectura_balanceadas_y_con_parametros_conocidos(qid, cyp
     for a, b in ("()", "[]", "{}"):
         assert sin_textos.count(a) == sin_textos.count(b), (qid, a)
     assert set(re.findall(r"\$(\w+)", cypher)) <= PARAMS, qid
+
+
+RE_COMPRENSION_UN_NODO = re.compile(r"\[\s*\(\w*(:\w+)?(\s*\{[^}]*\})?\)\s*(WHERE|\|)")
+
+
+@pytest.mark.parametrize("qid,cypher", list(todas_las_plantillas().items()))
+def test_sin_comprension_de_patron_de_un_solo_nodo(qid, cypher):
+    """Error real en Render (17/11): `[(pm:ParametroModelo) WHERE … | …]` da CypherSyntaxError. Una comprensión de
+    patrón necesita al menos una relación; para nodos sueltos se usa COLLECT { MATCH … RETURN … }."""
+    assert not RE_COMPRENSION_UN_NODO.search(cypher), qid
