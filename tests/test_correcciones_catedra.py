@@ -325,3 +325,42 @@ def test_horas_hipoteticas_sin_pedido_de_riesgo_agregan_la_simulacion(tmp_path):
     assert sim and sim[0]["horas_hipoteticas"] == 9
     assert "escenario_parcial" in t["paquete_llm"]
     assert any("se agrega la simulación" in c for c in t.get("correcciones", []))
+
+
+# ------------------------------------------------------------------ cuarta revisión (Render tras el despliegue de C-63)
+def test_e2e04_riesgo_eliptico_con_el_valor_de_la_sobrecarga_se_detecta():
+    p = paquete_m2(CAP_JUAN_COMPLETA, escenario_parcial={"aclaracion": "..."})
+    p["secciones"].append({"modulo": "M3", "tipo_decision": "riesgo_de_atraso_M3", "resultado": RIESGO_JUAN_9H})
+    mala = ("El riesgo de atraso se simuló con 9 h semanales de estudio: bajo esa hipótesis el riesgo pasa a ser alto "
+            "(grado 0,77). Tené en cuenta que solo el riesgo de atraso se simuló con 9 h; la carga, la capacidad y el "
+            "plan siguen basados en tu situación actual.")
+    fallas = verificar(mala, p)
+    assert "magnitudes_cruzadas" in fallas
+    assert "escenario_parcial" not in fallas          # «siguen basados en tu situación actual» es una aclaración válida
+    buena = "El riesgo de atraso se simuló con 9 h: bajo esa hipótesis el riesgo pasa a ser alto (grado 0,664)."
+    assert "magnitudes_cruzadas" not in verificar(buena, p)
+
+
+def test_martina_ruta_critica_presentada_como_claves_se_detecta():
+    r = {"riesgo_atraso": {"etiqueta": "alto", "valor": 0.721},
+         "ruta_critica": ["Sistemas Operativos", "Redes de Datos", "Seguridad en los Sistemas de Información"],
+         "asignaturas_llave": [{"asignatura": "Sistemas Operativos", "grado_llave": 0.641},
+                               {"asignatura": "Diseño de Sistemas de Información", "grado_llave": 1.0}],
+         "arrastres": [{"asignatura": "Sistemas Operativos", "grado_llave": 0.641}]}
+    p = {"contexto": {}, "secciones": [{"modulo": "M3", "tipo_decision": "riesgo_de_atraso_M3", "resultado": r}]}
+    mala = ("La ruta crítica incluye “Sistemas Operativos”, “Redes de Datos” y “Seguridad en los Sistemas de "
+            "Información”, y esas asignaturas aparecen como claves en tu trayectoria.")
+    fallas = verificar(mala, p)
+    assert "llave_inventada" in fallas and "redes de datos" in fallas["llave_inventada"][0]
+    buena = ("Tu ruta crítica pasa por Sistemas Operativos, Redes de Datos y Seguridad en los Sistemas de Información; "
+             "de ellas, solo Sistemas Operativos es una materia llave.")
+    assert "llave_inventada" not in verificar(buena, p)
+
+
+def test_otra_asignatura_como_sujeto_de_llave_no_es_falso_positivo():
+    r = {"ruta_critica": ["Sistemas Operativos", "Redes de Datos", "Seguridad en los Sistemas de Información"],
+         "asignaturas_llave": [{"asignatura": "Sistemas Operativos"}, {"asignatura": "Análisis Numérico"}]}
+    p = {"contexto": {}, "secciones": [{"modulo": "M3", "tipo_decision": "riesgo_de_atraso_M3", "resultado": r}]}
+    texto = ("Ya tenés una ruta crítica formada por Sistemas Operativos, Redes de Datos y Seguridad en los Sistemas de "
+             "Información, y que Análisis Numérico figura como asignatura llave con grado 0,641.")
+    assert "llave_inventada" not in verificar(texto, p)

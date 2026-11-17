@@ -305,7 +305,21 @@ def magnitudes_cruzadas(resp: str, paquete: dict) -> list[str]:
             v = float(m.group(2).replace(",", "."))
             if not any(abs(v - x) <= 0.006 for x in vals):
                 problemas.append(f"asocia {m.group(2)} a {k}, pero ese valor no es el de {k}")
-    return problemas
+    # Elipsis (corrida en Render 17/11, Juan 9 h): «El riesgo de atraso se simuló con 9 h…: bajo esa hipótesis el
+    # riesgo pasa a ser alto (grado 0,77)». 0,77 era la sobrecarga; el «riesgo» suelto queda lejos del nombre completo.
+    atraso = valores.get("riesgo de atraso") or set()
+    if atraso:
+        for o in _oraciones(resp):
+            so = sin_acentos(o)
+            if "riesgo de atraso" not in so or "sobrecarga" in so:
+                continue
+            for m in re.finditer(r"\briesgo(?! de atraso)(.{0,40}?)(\d+[.,]\d+)", so):
+                if re.search(otras, m.group(1)):
+                    continue
+                v = float(m.group(2).replace(",", "."))
+                if not any(abs(v - x) <= 0.006 for x in atraso):
+                    problemas.append(f"asocia {m.group(2)} a riesgo de atraso, pero ese valor no es el de riesgo de atraso")
+    return sorted(set(problemas))
 
 
 RE_CORTE = re.compile(r"cort\w*|detuv\w*|deten\w*|sin evaluar|no se (evalu\w*|pudo evaluar|emit\w*)|"
@@ -397,6 +411,7 @@ RE_NO_RECALCULADO = re.compile(r"no se (recalcul|modific|ajust|simul|volv\w* a c
                                r"(siguen siendo|son|corresponden a) (los|las|el|la) "
                                r"(que (aparecen|figuran|estan|quedaron) )?registrad\w*|"
                                r"(se hizo|se calculo|se simulo|se realizo|se aplico) solo (para|sobre|en|con) (el|tu) riesgo|"
+                               r"(siguen|quedan|estan) basad\w* en (tu|la) situacion (actual|registrada)|"
                                r"(son|siguen siendo|corresponden a) (los|las|el|la) de (tu|la) situacion")
 
 
@@ -642,15 +657,40 @@ def llave_inventada(resp: str, paquete: dict) -> list[str]:
     o «clave» (error real: Lucía, «Simulación y Análisis Numérico son materias clave», con Simulación no llave)."""
     no_llave = {sin_acentos(d["asignatura"]) for d in _dicts(paquete)
                 if d.get("es_llave") is False and isinstance(d.get("asignatura"), str)}
+    # Riesgo de atraso de M3 (corrida en Render 17/11, Martina): trae «asignaturas_llave» y otras listas (ruta crítica,
+    # arrastres, cuellos de botella) sin es_llave. Las que no están entre las llave tampoco pueden llamarse «clave».
+    for s in _secciones(paquete):
+        r = s["resultado"]
+        if s.get("modulo") != "M3" or not isinstance(r.get("asignaturas_llave"), list):
+            continue
+        llave = {sin_acentos(a.get("asignatura")) for a in r["asignaturas_llave"] if isinstance(a, dict)}
+        mencionadas = list(r.get("ruta_critica") or []) + [x.get("asignatura") for x in (r.get("arrastres") or [])
+                                                             + (r.get("cuellos_de_botella") or []) if isinstance(x, dict)]
+        no_llave |= {sin_acentos(a) for a in mencionadas if isinstance(a, str)} - llave
+    nombres = {sin_acentos(d["asignatura"]) for d in _dicts(paquete) if isinstance(d.get("asignatura"), str)} | no_llave
     problemas = []
     for o in _oraciones(resp):
         so = sin_acentos(o)
+        # «La ruta crítica incluye SO, Redes de Datos y SSI, y esas asignaturas aparecen como claves»
+        if any(a in so for a in no_llave):
+            m = re.search(r"\b(esas|estas|todas|las tres|las dos|ambas)\b[^.;:\n]{0,30}?\b(son|aparecen como|figuran como|"
+                          r"resultan|se consideran)\s+(materias?\s+|asignaturas?\s+)?(llaves?|claves?)\b", so)
+            if m and not re.search(r"\bno\b|\bni\b", m.group(0)):
+                nombres = sorted(a for a in no_llave if a in so)
+                problemas.append(f"presenta como llave a {', '.join(nombres)}, que no están entre las asignaturas llave")
         for a in sorted(no_llave):
             if a not in so:
                 continue
             for m in list(re.finditer(re.escape(a) + RE_ES_LLAVE, so)) + \
                      list(re.finditer(r"\b(materias?|asignaturas?)\s+(llaves?|claves?)\b[^.;:\n]{0,40}?" + re.escape(a), so)):
                 if re.search(r"\bno\b|\bni\b|\bsin\b|\bsolo\b|unicamente|en cambio", m.group(0)):
+                    continue
+                # «…Seguridad en los SI, y que Análisis Numérico figura como asignatura llave»: con verbo en singular,
+                # si otra asignatura se interpone, el sujeto es esa otra (falso positivo real del log, Martina). Con verbo
+                # en plural («Simulación y Análisis Numérico son clave», C-41) las dos son sujeto y se sigue marcando.
+                resto = m.group(0).replace(a, " ", 1)
+                v = re.search(r"\b(es|resulta|funciona|figura)\b", resto)
+                if v and any(n != a and n in resto[:v.start()] for n in nombres):
                     continue
                 problemas.append(f"presenta {a} como materia llave, pero su grado está debajo del corte (no es llave)")
                 break
