@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SITA · Asistente de trayectoria académica</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-soft: #f4f5f7;
+    --bg-hover: #eceef1;
+    --ink: #1b1f24;
+    --ink-soft: #5f6672;
+    --ink-faint: #8a919c;
+    --line: #e3e6ea;
+    --accent: #2f6fdb;
+    --accent-ink: #ffffff;
+    --ok: #1f8a4c;
+    --warn: #b7791f;
+    --err: #c0392b;
+    --radius: 18px;
+    --col: 760px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17181b;
+      --bg-soft: #222428;
+      --bg-hover: #2b2e33;
+      --ink: #e8eaed;
+      --ink-soft: #a5abb4;
+      --ink-faint: #7b828c;
+      --line: #2f3238;
+      --accent: #6c9cf0;
+      --accent-ink: #0f1115;
+      --ok: #4cc283;
+      --warn: #e0a84a;
+      --err: #ef6f61;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15.5px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    display: flex; flex-direction: column;
+  }
+  button { font: inherit; color: inherit; }
+  a { color: var(--accent); }
+
+  /* ---------- barra superior ---------- */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 20px; flex: 0 0 auto;
+  }
+  .marca { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px; }
+  .logo {
+    width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
+    background: linear-gradient(135deg, #2f6fdb, #7a5af5); color: #fff; font-size: 13px; font-weight: 700;
+  }
+  .estado { font-size: 12.5px; color: var(--ink-faint); font-weight: 400; display: flex; align-items: center; gap: 6px; }
+  .punto { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-faint); }
+  .punto.ok { background: var(--ok); } .punto.mal { background: var(--err); }
+  .btn-nuevo {
+    border: 1px solid var(--line); background: transparent; border-radius: 999px;
+    padding: 6px 14px; font-size: 13.5px; cursor: pointer; color: var(--ink-soft);
+  }
+  @media (max-width: 600px) { #estado-txt { display: none; } .btn-nuevo .largo { display: none; } }
+  .btn-nuevo:hover { background: var(--bg-soft); color: var(--ink); }
+
+  /* ---------- conversación ---------- */
+  #scroll { flex: 1 1 auto; overflow-y: auto; }
+  #chat { max-width: var(--col); margin: 0 auto; padding: 8px 20px 24px; }
+
+  .bienvenida { text-align: center; padding: 12vh 0 0; }
+  .bienvenida h1 {
+    font-size: 34px; font-weight: 600; margin: 0 0 6px; letter-spacing: -.02em;
+    background: linear-gradient(90deg, #2f6fdb, #7a5af5 60%, #c05ad8);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .bienvenida p { color: var(--ink-soft); margin: 0 0 28px; }
+  .sugerencias { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; text-align: left; }
+  .sug {
+    border: 1px solid var(--line); background: var(--bg); border-radius: 14px; padding: 12px 14px;
+    cursor: pointer; font-size: 14px; line-height: 1.45; color: var(--ink); text-align: left;
+  }
+  .sug:hover { background: var(--bg-soft); }
+  .sug small { display: block; color: var(--ink-faint); font-size: 12px; margin-bottom: 2px; }
+  @media (max-width: 600px) { .sugerencias { grid-template-columns: 1fr; } .bienvenida { padding-top: 6vh; } }
+
+  .turno { margin: 22px 0; }
+  .usuario { display: flex; justify-content: flex-end; }
+  .usuario .burbuja {
+    background: var(--bg-soft); border-radius: var(--radius); padding: 10px 16px;
+    max-width: 80%; white-space: pre-wrap; word-wrap: break-word;
+  }
+  .asistente { display: flex; gap: 14px; align-items: flex-start; }
+  .asistente .avatar { flex: 0 0 auto; margin-top: 2px; }
+  .asistente .cuerpo { flex: 1 1 auto; min-width: 0; }
+  .texto { white-space: pre-wrap; word-wrap: break-word; }
+  .texto.error { color: var(--err); }
+
+  .pensando { color: var(--ink-soft); display: flex; align-items: center; gap: 10px; }
+  .pensando .shimmer {
+    background: linear-gradient(90deg, var(--ink-faint) 0%, var(--ink) 50%, var(--ink-faint) 100%);
+    background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: brillo 1.6s linear infinite;
+  }
+  @keyframes brillo { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  .logo.girando { animation: girar 1.4s ease-in-out infinite; }
+  @keyframes girar { 50% { transform: rotate(180deg) scale(.9); } }
+
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; font-size: 12.5px; color: var(--ink-faint); }
+  .chip {
+    border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; font-size: 12px; color: var(--ink-soft);
+    white-space: nowrap;
+  }
+  .chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+  .chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+  .toggle {
+    border: 0; background: transparent; color: var(--ink-soft); cursor: pointer; padding: 2px 6px;
+    border-radius: 8px; font-size: 12.5px; display: inline-flex; align-items: center; gap: 4px;
+  }
+  .toggle:hover { background: var(--bg-soft); color: var(--ink); }
+  .toggle .flecha { transition: transform .15s; display: inline-block; }
+  .toggle[aria-expanded="true"] .flecha { transform: rotate(90deg); }
+
+  /* ---------- panel "cómo lo resolvió" ---------- */
+  .razonamiento {
+    margin-top: 10px; border-left: 2px solid var(--line); padding: 2px 0 2px 16px; font-size: 13.5px; color: var(--ink-soft);
+  }
+  .paso { position: relative; margin: 0 0 14px; }
+  .paso::before {
+    content: ""; position: absolute; left: -22px; top: 7px; width: 10px; height: 10px; border-radius: 50%;
+    background: var(--bg); border: 2px solid var(--accent);
+  }
+  .paso.mal::before { border-color: var(--warn); }
+  .paso h4 { margin: 0 0 3px; font-size: 13.5px; color: var(--ink); font-weight: 600; }
+  .paso ul { margin: 2px 0 0; padding-left: 18px; }
+  .paso li { margin: 2px 0; }
+  .paso code, .cod {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px;
+    background: var(--bg-soft); border-radius: 6px; padding: 1px 6px; color: var(--ink);
+  }
+  .etq { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-faint); margin-left: 4px; }
+  .motivo { color: var(--ink-faint); font-size: 12.5px; }
+  .fund { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--ink-soft); }
+
+  /* ---------- caja de entrada ---------- */
+  footer { flex: 0 0 auto; padding: 0 20px 16px; }
+  .caja {
+    max-width: var(--col); margin: 0 auto; display: flex; align-items: flex-end; gap: 8px;
+    background: var(--bg-soft); border: 1px solid var(--line); border-radius: 26px; padding: 8px 8px 8px 20px;
+  }
+  .caja:focus-within { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  textarea {
+    flex: 1; resize: none; border: 0; outline: 0; background: transparent; color: var(--ink);
+    font: inherit; padding: 8px 0; max-height: 200px; line-height: 1.5;
+  }
+  textarea::placeholder { color: var(--ink-faint); }
+  #enviar {
+    flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%; border: 0; cursor: pointer;
+    background: var(--accent); color: var(--accent-ink); display: grid; place-items: center;
+  }
+  #enviar:disabled { opacity: .35; cursor: default; }
+  .aviso { text-align: center; font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="marca">
+    <div class="logo">S</div>
+    SITA
+    <span class="estado" id="estado"><span class="punto" id="punto"></span><span id="estado-txt">conectando…</span></span>
+  </div>
+  <button class="btn-nuevo" id="nuevo" title="Empezar una conversación nueva">+ Nueva<span class="largo"> conversación</span></button>
+</header>
+
+<div id="scroll"><div id="chat"></div></div>
+
+<footer>
+  <form class="caja" id="form">
+    <textarea id="entrada" rows="1" maxlength="1000" placeholder="Preguntale a SITA sobre tu trayectoria…" autocomplete="off"></textarea>
+    <button id="enviar" type="submit" aria-label="Enviar" disabled>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+    </button>
+  </form>
+  <div class="aviso">SITA explica lo que está en el grafo de conocimiento (Neo4j). Confirmá las decisiones importantes con el asesor académico.</div>
+</footer>
+
+<script>
+const MODULOS = { M1: "Habilitación", M2: "Carga y capacidad", M3: "Riesgo de atraso", M4: "Planificación", X: "Corte" };
+const SUGERENCIAS = [
+  { t: "Lucía · M1 + M3 + M4", q: "Soy Lucía, legajo 48115. ¿Por qué no puedo cursar Inteligencia Artificial y qué me conviene cursar este cuatrimestre?" },
+  { t: "Juan · M1 + M2 + M4", q: "Soy Juan Pérez, legajo 47890. ¿Qué me conviene cursar, por qué me recortaron una materia y si curso IA, puedo rendir el final después?" },
+  { t: "Martina · los cuatro submódulos", q: "Soy Martina Gómez, legajo 48520. ¿Por qué no puedo cursar Análisis Numérico si yo dije que quería 2 materias? ¿Y qué tan en riesgo estoy de atrasarme?" },
+  { t: "Ana · M3 + M4", q: "Legajo 48611, ¿voy bien o tengo riesgo de atrasarme? ¿Qué me conviene cursar?" },
+];
+
+const $ = id => document.getElementById(id);
+const chat = $("chat"), scroll = $("scroll"), form = $("form"), entrada = $("entrada"), enviar = $("enviar");
+let sesion = nuevaSesion();
+let ocupado = false;
+
+function nuevaSesion() { return "web-" + Math.random().toString(36).slice(2, 10); }
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function formatear(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"); }
+function abajo() { scroll.scrollTop = scroll.scrollHeight; }
+function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+
+/* ---------- pantalla inicial ---------- */
+function bienvenida() {
+  chat.innerHTML = "";
+  const b = el("div", "bienvenida");
+  b.innerHTML = `<h1>Hola, ¿en qué te ayudo?</h1>
+    <p>Consultá habilitaciones, carga, riesgo de atraso o qué te conviene cursar.</p>`;
+  const g = el("div", "sugerencias");
+  for (const s of SUGERENCIAS) {
+    const c = el("button", "sug", `<small>${esc(s.t)}</small>${esc(s.q)}`);
+    c.type = "button";
+    c.onclick = () => preguntar(s.q);
+    g.appendChild(c);
+  }
+  b.appendChild(g);
+  chat.appendChild(b);
+}
+
+/* ---------- envío ---------- */
+async function preguntar(q) {
+  q = q.trim();
+  if (!q || ocupado) return;
+  ocupado = true; actualizarBoton();
+  chat.querySelector(".bienvenida")?.remove();
+
+  const tu = el("div", "turno usuario"); tu.appendChild(el("div", "burbuja", esc(q))); chat.appendChild(tu);
+
+  const ta = el("div", "turno asistente");
+  const logo = el("div", "logo avatar girando", "S");
+  const cuerpo = el("div", "cuerpo");
+  cuerpo.appendChild(el("div", "pensando", `<span class="shimmer">Consultando la base de conocimiento…</span>`));
+  ta.append(logo, cuerpo); chat.appendChild(ta); abajo();
+
+  const t0 = performance.now();
+  try {
+    const r = await fetch("/consultar", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texto: q, sesion_id: sesion }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(typeof j.detail === "string" ? j.detail : "error " + r.status);
+    cuerpo.innerHTML = "";
+    cuerpo.appendChild(el("div", "texto", formatear(j.respuesta)));
+    cuerpo.appendChild(meta(j, ((performance.now() - t0) / 1000)));
+  } catch (err) {
+    cuerpo.innerHTML = "";
+    cuerpo.appendChild(el("div", "texto error", "No pude procesar la consulta: " + esc(err.message)));
+  } finally {
+    logo.classList.remove("girando");
+    ocupado = false; actualizarBoton(); entrada.focus(); abajo();
+  }
+}
+
+function meta(j, seg) {
+  const m = el("div", "meta");
+  for (const x of j.modulos_consultados || []) m.appendChild(el("span", "chip", `${esc(x)} · ${esc(MODULOS[x] || "")}`));
+  if (j.fundamento) m.appendChild(el("span", j.verificada ? "chip ok" : "chip warn", j.verificada ? "✓ verificada" : "⚠ sin verificar"));
+  m.appendChild(el("span", "", `${Number(j.segundos ?? seg).toFixed(1)} s`));
+
+  const btn = el("button", "toggle", `<span class="flecha">›</span> Cómo lo resolvió`);
+  btn.type = "button"; btn.setAttribute("aria-expanded", "false");
+  let panel = null;
+  btn.onclick = async () => {
+    const abierto = btn.getAttribute("aria-expanded") === "true";
+    btn.setAttribute("aria-expanded", String(!abierto));
+    if (abierto) { panel.hidden = true; return; }
+    if (panel) { panel.hidden = false; return; }
+    panel = el("div", "razonamiento", `<div class="pensando"><span class="shimmer">Cargando la traza…</span></div>`);
+    m.after(panel);
+    try {
+      const r = await fetch("/traza/" + encodeURIComponent(j.traza_id));
+      if (!r.ok) throw new Error("error " + r.status);
+      panel.innerHTML = razonamiento(await r.json());
+    } catch (e) { panel.innerHTML = `<span class="texto error">No pude cargar la traza: ${esc(e.message)}</span>`; }
+  };
+  m.appendChild(btn);
+  return m;
+}
+
+/* ---------- traza → pasos legibles ---------- */
+function paso(titulo, html, mal) { return `<div class="paso${mal ? " mal" : ""}"><h4>${titulo}</h4>${html || ""}</div>`; }
+function lista(items) { return items.length ? `<ul>${items.map(i => `<li>${i}</li>`).join("")}</ul>` : ""; }
+
+function razonamiento(t) {
+  let h = "";
+  const flujo = t.flujo || "";
+
+  // 1. Enrutamiento
+  const val = t.enrutamiento?.validado || {};
+  const pedidos = t.pedidos_resueltos || val.pedidos || [];
+  const items = pedidos.map(p => {
+    const asig = p.nombre_asignatura || (p.asignaturas || []).join(", ");
+    return `<code>${esc(p.modulo)}</code> ${esc(p.intencion)}${asig ? " · " + esc(asig) : ""}${p.alcance ? ` <span class="motivo">(${esc(p.alcance)})</span>` : ""}`;
+  });
+  if (val.fuera_de_dominio) items.push("La consulta está fuera del dominio del asistente.");
+  if ((val.faltantes || []).length) items.push("Faltan datos: " + esc(val.faltantes.join(", ")));
+  if ((t.enrutamiento?.correcciones || []).length) items.push(`${t.enrutamiento.correcciones.length} corrección(es) automáticas sobre la salida del LLM`);
+  h += paso("1 · Interpretó la consulta <span class='etq'>LLM + prompt de enrutamiento</span>",
+    lista(items) || `<span class="motivo">Sin intenciones detectadas.</span>`);
+
+  // 2. Estudiante y contexto
+  const c = t.contexto;
+  if (c || t.estudiante) {
+    const ci = [];
+    const est = c?.estudiante || t.estudiante?.nombre;
+    const leg = c?.legajo || t.estudiante?.legajo;
+    if (est || leg) ci.push(`${esc(est || "")}${leg ? ` · legajo <code>${esc(leg)}</code>` : ""}`);
+    if (c?.periodo) ci.push(`Período ${esc(c.periodo)}`);
+    if (c?.confiabilidad) ci.push(`Confiabilidad de la historia: <strong>${esc(c.confiabilidad.etiqueta)}</strong>${c.confiabilidad.valor != null ? ` (${esc(c.confiabilidad.valor)})` : ""}`);
+    if (c?.corte_en) ci.push(`Consulta cortada en <code>${esc(c.corte_en)}</code>`);
+    if (c?.reserva) ci.push(`Reserva: ${esc(typeof c.reserva === "string" ? c.reserva : JSON.stringify(c.reserva))}`);
+    h += paso("2 · Identificó al estudiante y el contexto", lista(ci), !!c?.corte_en);
+  }
+
+  // 3. Submódulos
+  const secs = t.secciones || [];
+  if (secs.length || (t.no_evaluado || []).length) {
+    const si = secs.map(s => `<code>${esc(s.modulo)}</code> ${esc(MODULOS[s.modulo] || "")} · ${esc(s.intencion)}
+        <span class="etq">${s.origen === "enriquecimiento" ? "enriquecimiento" : "pedido"}</span>
+        ${s.estado !== "ok" ? `<span class="etq" style="color:var(--warn)">${esc(s.estado)}</span>` : ""}
+        ${s.motivo ? `<div class="motivo">${esc(s.motivo)}</div>` : ""}`);
+    for (const n of t.no_evaluado || [])
+      si.push(`<span style="opacity:.7"><code>${esc(n.modulo)}</code> ${esc(n.descripcion || n.intencion)}</span> <span class="etq" style="color:var(--warn)">no evaluado</span>${n.motivo ? `<div class="motivo">${esc(n.motivo)}</div>` : ""}`);
+    h += paso("3 · Consultó los submódulos <span class='etq'>orden M1→M2→M3→M4</span>", lista(si), (t.no_evaluado || []).length > 0);
+  }
+
+  // 4. Consultas Cypher
+  const q = t.consultas_ejecutadas || [];
+  if (q.length)
+    h += paso(`4 · Ejecutó ${q.length} consulta${q.length > 1 ? "s" : ""} en Neo4j <span class='etq'>solo lectura · lista blanca</span>`,
+      `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">${q.map(x => `<span class="cod" title="${esc(JSON.stringify(x.parametros))}">${esc(x.consulta)}</span>`).join("")}</div>`);
+
+  // 5. Explicación + verificación
+  const v = t.verificacion;
+  if (v && (v.intentos || []).length) {
+    const vi = v.intentos.map((it, i) => {
+      const f = it.fallas || {};
+      const ks = Object.keys(f);
+      return ks.length
+        ? `Borrador ${i + 1}: rechazado — ${ks.map(k => `<code>${esc(k)}</code>`).join(" ")}<div class="motivo">${esc(Object.values(f).flat().join(" · "))}</div>`
+        : `Borrador ${i + 1}: <span style="color:var(--ok)">aprobado</span>`;
+    });
+    if (v.respaldo_deterministico) vi.push("Se usó la <strong>respuesta de respaldo determinística</strong> (armada por Python, sin LLM).");
+    h += paso(`5 · Redactó y verificó la explicación <span class='etq'>${esc(t.modelo || "LLM")}</span>`, lista(vi), !!v.respaldo_deterministico);
+  } else if (flujo.startsWith("aclaracion")) {
+    h += paso("Pidió una aclaración", `<span class="motivo">${esc(flujo.replace("aclaracion: ", "Motivo: "))}</span>`);
+  } else if (flujo === "error") {
+    h += paso("Error", `<span class="motivo">${esc(t.error || "")}</span>`, true);
+  }
+
+  // 6. Fundamento y enlaces
+  const enl = `<a href="/auditar/${esc(t.traza_id)}" target="_blank">auditoría completa</a> · <a href="/traza/${esc(t.traza_id)}" target="_blank">traza JSON</a>`;
+  h += paso("6 · Fundamento", `${t.fundamento ? `<div class="fund">${esc(t.fundamento)}</div>` : ""}<div style="margin-top:4px">${enl}</div>`);
+  return h;
+}
+
+/* ---------- caja de texto ---------- */
+function actualizarBoton() { enviar.disabled = ocupado || !entrada.value.trim(); }
+function autoalto() { entrada.style.height = "auto"; entrada.style.height = Math.min(entrada.scrollHeight, 200) + "px"; }
+entrada.addEventListener("input", () => { autoalto(); actualizarBoton(); });
+entrada.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
+});
+form.addEventListener("submit", e => {
+  e.preventDefault();
+  const q = entrada.value; entrada.value = ""; autoalto(); preguntar(q);
+});
+$("nuevo").onclick = () => { if (ocupado) return; sesion = nuevaSesion(); bienvenida(); entrada.focus(); };
+
+/* ---------- estado del backend ---------- */
+fetch("/salud").then(r => r.json()).then(s => {
+  const ok = s.neo4j?.ok;
+  $("punto").className = "punto " + (ok ? "ok" : "mal");
+  $("estado-txt").textContent = ok ? `Neo4j · ${s.neo4j.estudiantes} estudiantes · ${s.llm}` : "Neo4j sin conexión";
+}).catch(() => { $("punto").className = "punto mal"; $("estado-txt").textContent = "servidor no disponible"; });
+
+bienvenida();
+entrada.focus();
+</script>
+</body>
+</html>

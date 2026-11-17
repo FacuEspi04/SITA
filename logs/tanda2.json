@@ -1,0 +1,40 @@
+[
+  {
+    "id": "E2E-06",
+    "texto": "Soy Valentina Sosa, legajo 48412. ¿Puedo cursar Física II y cuántas materias puedo llevar?",
+    "esperado": "Corte en M2 (X-02): lo de M1 se conserva. Física II ya figura APROBADA: no hay dictamen y la respuesta no debe juzgar la habilitación. La capacidad no se evalúa: se piden horas de trabajo y turnos.",
+    "modulos_minimos": [
+      "M1"
+    ],
+    "modulos_consultados": [
+      "M1"
+    ],
+    "cumple_modulos": true,
+    "traza_id": "7a73c350ceef",
+    "flujo": "sandwich completo",
+    "respuesta": "Ya tenés aprobada Física II, así que no necesitás volver a cursarla, y por ahora no se puede calcular cuántas materias podés llevar.\n\nComo en tu historia académica la asignatura figura aprobada, no hay un dictamen de habilitación ni de bloqueo para volver a cursarla. Respecto a la cantidad de materias que podés llevar, esa parte no se pudo evaluar porque faltan cargar datos de tu contexto: tus horas de trabajo semanales y los turnos que tenés disponibles, que son necesarios para estimar tu capacidad de carga.\n\nPor último, como tu historia académica presenta reserva y una confiabilidad media (0,49), te conviene confirmar tu situación con el asesor académico.\n\nFundamento: corte X-02, X-03 — Q-VALENTINA — plantillas: X_CORTE, M1_DICTAMEN — traza 7a73c350ceef",
+    "segundos": 24.79,
+    "verificacion_final": {},
+    "respaldo": false
+  },
+  {
+    "id": "E2E-07",
+    "texto": "Legajo 48611, ¿voy bien o tengo riesgo de atrasarme? ¿Qué me conviene cursar?",
+    "esperado": "M3: riesgo bajo 0,198 (E-11d). M4: plan completo de 4 ítems, adecuación alta 0,79, sin excluidos.",
+    "modulos_minimos": [
+      "M3",
+      "M4"
+    ],
+    "modulos_consultados": [
+      "M3",
+      "M4"
+    ],
+    "cumple_modulos": true,
+    "traza_id": "8e8986b3e7c7",
+    "flujo": "sandwich completo",
+    "respuesta": "Tu riesgo de atraso en la carrera es bajo (0,198), así que venís muy bien.\n\nActualmente estás en el nivel 2. Tu ruta crítica pasa por Física I, Comunicación de Datos, Redes de Datos y Seguridad en los Sistemas de Información. Contás con materias llave como Física I, Análisis Matemático II y Paradigmas de Programación. Dado que algunos criterios aplicados están en revisión, conviene que los confirmés con el asesor académico.\n\nPara este período se recomienda un plan con adecuación alta (0,79), que implica una carga de 40 horas semanales sobre 47 disponibles y un riesgo de sobrecarga bajo (0,21). El orden sugerido es:\n1. Rendir el final de la materia llave Física I.\n2. Cursar la materia llave Paradigmas de Programación.\n3. Cursar la materia llave Sistemas Operativos.\n4. Cursar Física II (podés cursarla, pero no vas a poder rendir su final hasta tener aprobada Física I).\n\nTené en cuenta que Análisis Matemático II, Probabilidad y Estadística, Economía y Legislación están habilitadas, pero no tienen oferta de dictado en este cuatrimestre.\n\nFundamento: M3 E-01, E-05, E-06, E-08d, E-11d, E-12d · M4 E-08d, E-11d, E-12d, H-05, H-06, H-07, H-10, P-02, RS2, RS3 — Q-ANA — plantillas: M3_Q1_RIESGO, M4_PLAN — traza 8e8986b3e7c7",
+    "segundos": 67.89,
+    "verificacion_final": {},
+    "respaldo": false
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "FUN-03",
+    "texto": "Legajo 48230, ¿por qué no me dan ningún dictamen?",
+    "esperado": "Corte en M1 por 2 inconsistencias (Simulación regular y aprobada a la vez); H-02 y X-01.",
+    "modulos_minimos": [
+      "M1"
+    ],
+    "modulos_consultados": [
+      "M1"
+    ],
+    "cumple_modulos": true,
+    "traza_id": "99d010f1f8cd",
+    "flujo": "sandwich completo",
+    "respuesta": "No te podemos dar un dictamen en este momento porque tu historia académica presenta registros contradictorios que deben aclararse antes de poder evaluar tu caso.\n\nEspecíficamente, tenés dos inconsistencias en tu registro y hace falta confirmar el estado real de la asignatura Simulación. Tu historia académica figura actualizada al 28 de septiembre de 2026 y, debido a estas discrepancias, la evaluación no puede continuar por ahora.\n\nComo este criterio de validación está actualmente en revisión, te conviene confirmar tu situación directamente con el asesor académico para regularizar los datos de tu legajo. Una vez aclarado el estado de tu historia académica, se va a poder procesar el dictamen correspondiente.\n\nFundamento: M1 X-01 — Q-TOMAS — plantillas: M1_HISTORIA — traza 99d010f1f8cd",
+    "segundos": 20.35,
+    "verificacion_final": {},
+    "respaldo": false
+  }
+]

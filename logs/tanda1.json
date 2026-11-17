@@ -1,0 +1,48 @@
+[
+  {
+    "id": "E2E-01",
+    "texto": "Soy Lucía, legajo 48115. ¿Por qué no puedo cursar Inteligencia Artificial y qué me conviene cursar este cuatrimestre?",
+    "esperado": "M1: BloqueoDirecto de IA (falta regularizar Simulación, vencida, y aprobar Análisis Numérico, condicionada; H-03, H-04). M3 (enriquecimiento): criticidad de lo que hay que destrabar (Análisis Numérico es llave, grado 0,641). M4: plan del período. Reserva: confiabilidad media 0,638.",
+    "modulos_minimos": [
+      "M1",
+      "M3",
+      "M4"
+    ],
+    "modulos_consultados": [
+      "M1",
+      "M3",
+      "M4"
+    ],
+    "cumple_modulos": true,
+    "traza_id": "6d79f74c002e",
+    "flujo": "sandwich completo",
+    "respuesta": "No, Lucía, todavía no podés cursar Inteligencia Artificial este cuatrimestre.\n\nPara quedar habilitada te falta regularizar Simulación, cuya cursada tenés vencida, y además necesitás aprobar el examen final de Análisis Numérico, materia que actualmente estás cursando y que representa una asignatura llave en tu carrera.\n\nPara este período te conviene cursar Administración de Sistemas de Información, Simulación, Ingeniería y Calidad de Software, y Seminario Integrador. Tené en cuenta que Redes de Datos también está habilitada, pero no tiene oferta en este cuatrimestre.\n\nCon esta carga, tu riesgo de sobrecarga es bajo (0,20) y la adecuación del plan es alta (0,80), aunque tu riesgo de atraso en la carrera es alto (0,72). Dado que la confiabilidad de tu historia académica es media (0,64) y algunos criterios aplicados se encuentran en revisión, te conviene confirmar tu planificación con el asesor académico.\n\nFundamento: M1 H-03, H-04 · M3 E-03, E-04 · M4 E-08d, E-12d, H-05, H-10, P-02, RS3, X-01 — Q-LUCIA — plantillas: M1_DICTAMEN, M4_PLAN, M3_Q4_CRITICIDAD — traza 6d79f74c002e",
+    "segundos": 32.81,
+    "verificacion_final": {},
+    "respaldo": false
+  },
+  {
+    "id": "E2E-03",
+    "texto": "Soy Martina Gómez, legajo 48520. ¿Por qué no puedo cursar Análisis Numérico si yo dije que quería 2 materias? ¿Y qué tan en riesgo estoy de atrasarme?",
+    "esperado": "M1: HabilitacionCursar (H-05). M4 (R-E2): excluida por tope declarado con empate persistente (P-05, P-06, P-04). M2 (R-E5): tope 2 frente a admisible 3 (C-08). M3: riesgo alto 0,721 (arrastre de Sistemas Operativos, llave).",
+    "modulos_minimos": [
+      "M1",
+      "M2",
+      "M3",
+      "M4"
+    ],
+    "modulos_consultados": [
+      "M1",
+      "M2",
+      "M3",
+      "M4"
+    ],
+    "cumple_modulos": true,
+    "traza_id": "52ab6061afb4",
+    "flujo": "sandwich completo",
+    "respuesta": "Sí, podés cursar Análisis Numérico porque tenés aprobadas Análisis Matemático I, Análisis Matemático II y Álgebra y Geometría Analítica. Sin embargo, el plan de este período no la incluye en su recomendación por el tope de 2 materias que declaraste, quedando excluida por esa causa con un empate persistente. Además, Comunicación de Datos quedó fuera de la recomendación por capacidad.\n\nSobre tu carga de cursada, tenés una capacidad de 43,0 horas semanales y un tamaño admisible de 3 materias, recortado por un ajuste de rendimiento. Tu riesgo de sobrecarga es medio, con un valor de 0,4, y tenés una holgura de 2,5 horas semanales con 3 materias de dificultad alta.\n\nEn relación con tu avance, tu riesgo de atraso es alto, con un valor de 0,721. Tenés pendiente Sistemas Operativos, la cual genera un arrastre y forma parte de la ruta crítica junto a Redes de Datos y Seguridad en los Sistemas de Información, siendo una asignatura llave junto a Desarrollo de Software, Análisis Numérico y Diseño de Sistemas de Información.\n\nDado que algunos criterios están en revisión, conviene confirmarlos con el asesor académico.\n\nFundamento: M1 H-05 · M2 C-04d, C-05, C-06, C-08, RS1, RS2, RS3 · M3 E-01, E-02, E-05, E-06, E-08d, E-12d · M4 C-04d, C-06, C-08, E-08d, E-12d, H-05, H-10, P-02, P-04, P-05, P-06, P-08, RS1, RS2, RS3 — Q-MARTINA — plantillas: M1_DICTAMEN, M2_CAPACIDAD, M3_Q1_RIESGO, M4_PLAN_ASIGNATURA, M4_PLAN — traza 52ab6061afb4",
+    "segundos": 356.47,
+    "verificacion_final": {},
+    "respaldo": false
+  }
+]

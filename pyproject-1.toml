@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sita"
+version = "3.0.0"
+description = "SITA — Sistema Inteligente de Trayectoria Académica (PG3, Grupo 19, UTN FRM, IA 2026)"
+requires-python = ">=3.10"
+dependencies = ["neo4j>=5.20", "requests>=2.31", "pydantic>=2.6", "fastapi>=0.110", "uvicorn>=0.29"]
+
+[project.scripts]
+sita = "sita.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sita = ["web/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
