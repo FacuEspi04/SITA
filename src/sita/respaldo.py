@@ -4,6 +4,7 @@ y no depende del modelo."""
 from __future__ import annotations
 
 import json
+import re
 
 from .textos import fecha_ar, fmt_num
 
@@ -52,6 +53,8 @@ def _m1(s: dict) -> list[str]:
         if inconsistencias:
             out = [f"Tu consulta quedó detenida porque tu historia académica tiene {inconsistencias} registros que se "
                    "contradicen; mientras no se corrijan, el sistema no emite dictámenes."]
+        elif (r.get("factores_confiabilidad") or {}).get("explicacion"):
+            out = [r["factores_confiabilidad"]["explicacion"]]
         elif conf.get("etiqueta"):
             out = [f"Tu historia académica tiene una confiabilidad {conf['etiqueta']}."]
         else:
@@ -129,7 +132,10 @@ def respaldo(paquete: dict) -> str:
         if mod == "M1":
             lineas += _m1(s)
         elif mod == "M2":
-            lineas += list(s["resultado"].get("lectura_guiada") or [])
+            # La lectura guiada es para el LLM: en el respaldo se quita el detalle de reglas («…la de mayor
+            # activación es RS1»), que mostraba ids internos al estudiante (corrida en Render, 17/11).
+            lineas += [re.sub(r"\s*Se activaron \d+ reglas difusas[^.]*\.", "", x)
+                       for x in s["resultado"].get("lectura_guiada") or []]
         elif mod == "M3":
             lineas += _m3(s)
         elif mod == "M4":

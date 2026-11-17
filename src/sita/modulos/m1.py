@@ -6,6 +6,7 @@ dictamen (respuesta a la devolución de PI1–PI4: mostrar el recorrido, no solo
 """
 from __future__ import annotations
 
+from ..textos import fmt_num
 from .base import (CALIDAD_DATO_M1, HABILITACION_M1, VIGENCIA_M1, Seccion, sin_datos)
 
 _CONTEXTO_M1 = """
@@ -214,6 +215,31 @@ def _sin_contexto(r: dict | None) -> dict | None:
     return r
 
 
+ETIQUETAS_FAVORABLES = {"reciente", "alta", "completa"}
+NOMBRE_VARIABLE = {"antiguedad_meses": "la antigüedad de la historia", "completitud": "la completitud de la historia"}
+
+
+def factores_confiabilidad(r: dict) -> dict | None:
+    """Qué medición bajó la confiabilidad y cuál no (corrida en Render, 17/11, caso Sofía): la respuesta decía «la
+    completitud es solo 0,92, lo que da una confiabilidad baja», cuando la completitud es ALTA y la causa es la
+    antigüedad (18 meses). Se separan las mediciones desfavorables (causa) de las favorables (no son causa)."""
+    conf = (r or {}).get("confiabilidad") or {}
+    meds = [m for m in (r or {}).get("mediciones_m1") or [] if isinstance(m, dict) and m.get("variable")]
+    if conf.get("etiqueta") not in ("baja", "media") or not meds:
+        return None
+    desf = [m for m in meds if str(m.get("etiqueta")) not in ETIQUETAS_FAVORABLES]
+    fav = [m for m in meds if str(m.get("etiqueta")) in ETIQUETAS_FAVORABLES]
+
+    def desc(m):
+        return f"{NOMBRE_VARIABLE.get(m['variable'], m['variable'])} ({m.get('etiqueta')}, {fmt_num(m.get('valor'))})"
+    texto = f"La confiabilidad es {conf['etiqueta']} por " + (" y ".join(desc(m) for m in desf) or "sin causa registrada")
+    if fav:
+        texto += "; " + " y ".join(desc(m) for m in fav) + (" es favorable" if len(fav) == 1 else " son favorables") \
+                 + " y no es la causa"
+    return {"desfavorables": [m["variable"] for m in desf], "favorables": [m["variable"] for m in fav],
+            "explicacion": texto + "."}
+
+
 def ejecutar(kb, intencion: str, p: dict) -> Seccion:
     leg = p["legajo"]
     if intencion == "dictamen_asignatura":
@@ -244,7 +270,11 @@ def ejecutar(kb, intencion: str, p: dict) -> Seccion:
         if r is None:
             return sin_datos("M1", intencion, CALIDAD_DATO_M1, "M1_HISTORIA", params,
                              "No hay una consulta registrada para ese estudiante.")
-        return Seccion("M1", intencion, CALIDAD_DATO_M1, "M1_HISTORIA", params, _sin_contexto(r), resultado_crudo=r)
+        t = _sin_contexto(r)
+        factores = factores_confiabilidad(t)
+        if factores:
+            t["factores_confiabilidad"] = factores
+        return Seccion("M1", intencion, CALIDAD_DATO_M1, "M1_HISTORIA", params, t, resultado_crudo=r)
     raise ValueError(f"M1 no atiende la intención {intencion}")
 
 

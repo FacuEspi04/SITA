@@ -11,6 +11,9 @@ normativas del caso»). Cada control nuevo está pensado contra un error real ob
   causa_de_corte .......... «quedó sin evaluar por la habilitación normativa» cuando el corte era X-01 (E2E-05)
   desglose_incompleto ..... desglose de la carga que no suma el total: omitía las anuales en curso (E2E-02/04)
   escenario_parcial ....... con horas hipotéticas, carga y plan se mostraban como recalculados (E2E-04)
+  causa_de_capacidad ...... «capacidad de 25 h porque se restó un ajuste por sobrecarga» (el ajuste recorta el plan)
+  certeza_inventada ....... «el riesgo tiene un nivel de certeza alto… podés considerarlo bastante fiable» (Martina)
+  factor_de_confiabilidad . «la completitud es solo 0,92» cuando es alta y la causa es la antigüedad (Sofía)
 
 Los controles se dividen en GRAVES (si persisten tras la reescritura, se usa la respuesta de respaldo
 determinística) y LEVES (forma: se pide reescritura y, si persisten, se registran).
@@ -26,7 +29,7 @@ GRAVES = {"vacia", "numeros_sin_respaldo", "ids_sin_respaldo", "tipo_de_decision
           "cobertura_normativa", "causa_de_exclusion", "magnitudes_cruzadas", "instituciones_inventadas",
           "porcentaje_o_probabilidad", "idioma", "sin_dictamen", "requisito_para_rendir", "escenario_hipotetico",
           "etiqueta_inventada", "llave_inventada", "riesgo_negado", "causa_de_corte", "desglose_incompleto",
-          "escenario_parcial"}
+          "escenario_parcial", "causa_de_capacidad", "certeza_inventada", "factor_de_confiabilidad"}
 
 INSTRUCCION = {
     "vacia": "escribí la respuesta completa",
@@ -55,9 +58,15 @@ INSTRUCCION = {
     "causa_de_corte": ("el corte se debe a la calidad de los datos de la historia académica (datos viejos, contradictorios "
                        "o poco confiables), no a la habilitación ni a las correlativas"),
     "desglose_incompleto": ("si desglosás la carga, incluí todos sus componentes (también las horas de asignaturas "
-                            "anuales en curso) para que la suma dé el total"),
+                            "anuales en curso, nombrando cada una) para que la suma dé el total"),
     "escenario_parcial": ("aclará que solo el riesgo de atraso se simuló con esas horas: la carga y el plan son los de tu "
                           "situación registrada y no se recalcularon"),
+    "causa_de_capacidad": ("la capacidad es la dedicación sostenible menos las horas de trabajo; el ajuste por sobrecarga "
+                           "recorta materias del plan, no la capacidad"),
+    "certeza_inventada": ("un grado difuso no es un nivel de certeza ni de fiabilidad; la confiabilidad es la calidad de "
+                          "los datos de la historia, no la exactitud del cálculo"),
+    "factor_de_confiabilidad": ("atribuí la confiabilidad baja solo a los factores desfavorables; un factor favorable "
+                                "(p. ej. completitud alta) no es la causa"),
 }
 
 JERGA = ["json", "neo4j", "cypher", "grafo", "traza", "lectura guiada", "base de datos", "seccion", "modulo m"]
@@ -67,6 +76,7 @@ INSTITUCIONES = ["bedel", "secretari", "departamento de alumnos", "direccion de 
 RE_TUTEO = re.compile(r"\b(tienes|puedes|debes|quieres|necesitas|usted|tú)\b", re.I)
 RE_PORTUGUES = re.compile(r"[ãõç]|\b(você|vocês|não|também|então|ainda|isso|porém|são|matéria|obrigad[oa])\b", re.I)
 RE_JERGA_INTERNA = re.compile(r"\b(Q-[A-Z0-9-]+|ConfiabilidadDato|contexto\s*M1|bajo\s+supuesto)\b"
+                              r"|\balcance:?\s+(cursar|rendir)\b"
                               r"|\b(regla|criterio|estado|condicion)\s+(es\s+|esta\s+)?candidat\w*", re.I)
 RE_INGLES = re.compile(r"\b(the|you|your|cannot|with|because|and)\b", re.I)
 RE_NEGACION = re.compile(r"\b(no|ni|sin|tampoco|ningun\w*)\b")
@@ -353,15 +363,40 @@ def desglose_incompleto(resp: str, paquete: dict) -> list[str]:
         detalladas = [i for i in r.get("items_evaluados") or []
                       if i.get("asignatura") and i.get("horas_semanales") is not None
                       and _horas_junto_a(i["asignatura"], i["horas_semanales"], t)]
-        if len(detalladas) >= 2 and not re.search(r"anual|proyecto final", t):
+        nombres = d.get("anuales_en_curso") or []
+        # Corrida en Render (17/11): «la suma de las materias que debés cursar (Tecnología…, IA, Ciencia de Datos y
+        # Simulación) da 31 h»: no detalla horas, pero atribuye el total solo a las del período.
+        total = re.escape(fmt_num(d["total_h"]).replace(".", ","))
+        items = [sin_acentos(i.get("asignatura")) for i in r.get("items_evaluados") or [] if i.get("asignatura")]
+        for o in _oraciones(resp):
+            so = sin_acentos(o)
+            if (sum(1 for n in items if n in so) >= 2 and re.search(r"\b" + total + r"\s*(h|horas)\b", so)
+                    and re.search(r"\bsuma|\bda\b|\bdan\b|en total|totaliz", so)
+                    and not re.search(r"anual|proyecto final", so) and not any(sin_acentos(n) in so for n in nombres)):
+                return [f"atribuye el total de {fmt_num(d['total_h'])} h solo a las asignaturas del período: faltan las "
+                        f"{fmt_num(d['anuales_en_curso_h'])} h de asignaturas anuales en curso"]
+        if len(detalladas) < 2:
+            continue
+        if not re.search(r"anual|proyecto final", t) and not any(sin_acentos(n) in t for n in nombres):
             return [f"detalla las horas de {len(detalladas)} asignaturas pero omite las {fmt_num(d['anuales_en_curso_h'])} h "
                     f"de asignaturas anuales en curso: el detalle no suma el total de {fmt_num(d['total_h'])} h"]
+        # Segunda devolución (corrida del 17/11): «6,75 h de las asignaturas anuales que continúan» suma bien, pero
+        # no dice CUÁL es. Si el dato trae el nombre, el desglose tiene que nombrarla.
+        faltan = [n for n in nombres if sin_acentos(n) not in t]
+        if faltan:
+            return [f"menciona las horas de asignaturas anuales en curso sin nombrarlas: falta {', '.join(faltan)}"]
     return []
 
 
+RE_REGULARIZAR_NEGADO = re.compile(r"no (alcanza|basta|es suficiente) con regulariz|no hace falta regulariz|"
+                                   r"ya (la )?(tenes |esta |estas )?regulariz|sin necesidad de regulariz")
 RE_TEMA_REGISTRADO = re.compile(r"\bcarga\b|capacidad|holgura|sobrecarga|\bplan\b")
 RE_NO_RECALCULADO = re.compile(r"no se (recalcul|modific|ajust|simul|volv\w* a calcular)\w*|sin recalcul\w*|"
                                r"no (cambia|cambian|varia|varian)\b|(situacion|datos?|valores?) registrad\w*|"
+                               # corrida en Render (17/11): borradores correctos rechazados por estas formas
+                               r"(siguen siendo|son|corresponden a) (los|las|el|la) "
+                               r"(que (aparecen|figuran|estan|quedaron) )?registrad\w*|"
+                               r"(se hizo|se calculo|se simulo|se realizo|se aplico) solo (para|sobre|en|con) (el|tu) riesgo|"
                                r"(son|siguen siendo|corresponden a) (los|las|el|la) de (tu|la) situacion")
 
 
@@ -381,6 +416,73 @@ def escenario_parcial(resp: str, paquete: dict) -> list[str]:
             return []
     return ["menciona la carga o el plan sin aclarar que son los registrados y que no se recalcularon con las horas "
             "hipotéticas (solo se simuló el riesgo de atraso)"]
+
+
+RE_CAPACIDAD_POR_AJUSTE = re.compile(
+    r"capacidad[^.;]{0,50}\b(porque|debido a|a causa de|restando|tras|luego de|despues de)\b[^.;]{0,40}"
+    r"(ajuste|sobrecarga|unidad|recorte)"
+    r"|capacidad[^.;]{0,50}\bpor (el|un|la|una) (ajuste|recorte|reduccion)"
+    r"|\b(reduccion|recorte|descuento|ajuste)s? (de [^.;]{0,20} )?(en|de|a) (la|tu) capacidad")
+RE_CAPACIDAD_NEGADA = re.compile(r"no (cambia|modifica|reduce|afecta|toca|altera)\w* (la|tu) capacidad|"
+                                 r"capacidad no (cambia|se modifica|se reduce|se ve afectada)")
+
+
+def causa_de_capacidad(resp: str, paquete: dict) -> list[str]:
+    """Corrida en Render (17/11, Juan): «tu capacidad es de 25 h porque se calculó restando un ajuste por sobrecarga…
+    una reducción de una unidad en la capacidad disponible». La capacidad es dedicación sostenible − horas de trabajo
+    (C-02); el ajuste por sobrecarga (C-04d) recorta el TAMAÑO del plan, no la capacidad."""
+    if not any(s.get("modulo") == "M2" for s in _secciones(paquete)):
+        return []
+    problemas = []
+    for o in _oraciones(resp):
+        so = sin_acentos(o)
+        if RE_CAPACIDAD_POR_AJUSTE.search(so) and not RE_CAPACIDAD_NEGADA.search(so):
+            problemas.append(f"atribuye la capacidad al ajuste por sobrecarga: «{o.strip()[:140]}»")
+    return problemas
+
+
+RE_CERTEZA = re.compile(r"\b(certeza|certidumbre|nivel de seguridad|grado de seguridad)\b|"
+                        r"consider\w*(lo|la)? (bastante |muy |totalmente )?(fiable|confiable|segur[oa])|"
+                        r"\b(el|tu) (riesgo|resultado|calculo|valor)[^.;]{0,30}\b(es|resulta) (bastante |muy )?"
+                        r"(fiable|confiable|segur[oa])")
+
+
+def certeza_inventada(resp: str) -> list[str]:
+    """Corrida en Render (17/11, Martina): «el riesgo… tiene un nivel de certeza alto… la confiabilidad de la información
+    es alta (0,778), por lo que podés considerarlo bastante fiable». El grado difuso no mide certeza, y la confiabilidad
+    del dato de la historia no dice nada de la exactitud del modelo (reglas candidatas)."""
+    problemas = []
+    for o in _oraciones(resp):
+        so = re.sub(r"seguridad en los sistemas de informacion", " ", sin_acentos(o))  # nombre de asignatura
+        m = RE_CERTEZA.search(so)
+        if m and not _span_negado(so[max(0, m.start() - 40):m.start()]):
+            problemas.append(f"presenta el resultado como cierto o fiable: «{o.strip()[:140]}»")
+    return problemas
+
+
+RE_FACTOR = {"completitud": re.compile(r"completitud[^.;]{0,40}\b(solo|apenas|baja|insuficiente|incomplet|falt)\w*|"
+                                       r"\b(solo|apenas|baja|insuficiente)\w* (completitud|esta completa)"),
+             "antiguedad_meses": re.compile(r"(desactualizad|antigua|vieja|atrasad)\w*[^.;]{0,30}historia|"
+                                            r"historia[^.;]{0,30}(desactualizad|antigua|vieja)\w*")}
+
+
+def factor_de_confiabilidad(resp: str, paquete: dict) -> list[str]:
+    """Corrida en Render (17/11, Sofía): «la completitud es solo 0,92, lo que da una confiabilidad baja», cuando la
+    completitud es ALTA y la causa es la antigüedad. Un factor favorable no puede presentarse como deficiente."""
+    favorables = set()
+    for s in _secciones(paquete):
+        f = s["resultado"].get("factores_confiabilidad") if s.get("modulo") == "M1" else None
+        if isinstance(f, dict):
+            favorables |= set(f.get("favorables") or [])
+    problemas = []
+    for o in _oraciones(resp):
+        so = sin_acentos(o)
+        for var in favorables:
+            rx = RE_FACTOR.get(var)
+            m = rx.search(so) if rx else None
+            if m and not _span_negado(so[max(0, m.start() - 30):m.start()]):
+                problemas.append(f"presenta {var} (favorable) como causa de la confiabilidad baja: «{o.strip()[:140]}»")
+    return problemas
 
 
 def instituciones_inventadas(resp: str, paquete: dict) -> list[str]:
@@ -427,11 +529,34 @@ def requisito_para_rendir(resp: str, paquete: dict) -> list[str]:
     """Advertencia cursa_sin_rendir (H-07): para rendir hay que APROBAR la correlativa (error real: «hasta que
     regularices Simulación», que ya era regular)."""
     t = sin_acentos(resp)
+    problemas = []
+    # Correlativas que algún dictamen del paquete SÍ exige regularizar: ahí «regularizar» es correcto (p. ej. Lucía).
+    a_regularizar = set()
+    for d in _dictamenes_m1(paquete):
+        for c in (d.get("causas") or []) + (d.get("causa_raiz") or []):
+            if "reg" in sin_acentos(f"{c.get('tipo', '')} {c.get('correlatividad', '')}"):
+                a_regularizar.add(sin_acentos(c.get("asignatura")))
     for s in _secciones(paquete):
         advs = (s["resultado"].get("advertencias") or []) if s.get("modulo") == "M1" else []
-        if any(a.get("tipo") == "cursa_sin_rendir" for a in advs) and "aprob" not in t:
+        advs = [a for a in advs if a.get("tipo") == "cursa_sin_rendir"]
+        if not advs:
+            continue
+        if not re.search(r"aprob|aprueb", t):  # «aprobar», «aprobada» y también «apruebes», «aprueba»
             return ["para rendir hace falta aprobar la correlativa y la respuesta no lo dice"]
-    return []
+        # Segunda devolución (corrida del 17/11): abría bien («hasta que apruebes Simulación») y cerraba con
+        # «gestionar la regularización de Simulación». Basta con que aparezca «aprob» en otra oración para que
+        # el control anterior pasara; ahora también se busca «regulariz…» junto a la correlativa.
+        for a in advs:
+            m = re.search(r"hasta aprobar (.+?)\.?$", sin_acentos(a.get("mensaje")))
+            req = m.group(1).strip() if m else ""
+            if not req or req in a_regularizar:
+                continue
+            for o in _oraciones(resp):
+                os_ = sin_acentos(o)
+                if req in os_ and re.search(r"regulariz", os_) and not RE_REGULARIZAR_NEGADO.search(os_):
+                    problemas.append(f"dice que hay que regularizar {req}, pero para rendir hay que aprobarla")
+                    break
+    return sorted(set(problemas))
 
 
 def escenario_hipotetico(resp: str, paquete: dict) -> list[str]:
@@ -601,6 +726,9 @@ def verificar(respuesta: str, paquete: dict, ids_en_cuerpo: bool = False) -> dic
         "etiqueta_inventada": etiqueta_inventada(r, paquete),
         "llave_inventada": llave_inventada(r, paquete),
         "riesgo_negado": riesgo_negado(r, paquete),
+        "causa_de_capacidad": causa_de_capacidad(r, paquete),
+        "certeza_inventada": certeza_inventada(r),
+        "factor_de_confiabilidad": factor_de_confiabilidad(r, paquete),
         "jerga": jerga(r),
         "voseo": sorted(set(m.lower() for m in RE_TUTEO.findall(r))),
         "idioma": idioma(r),

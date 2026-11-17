@@ -242,6 +242,18 @@ class Orquestador:
                 resueltos.append({**base, "horizonte_meses": hz if hz is not None and 0 < hz <= 24 else None})
             else:
                 resueltos.append(base)
+        # Corrida en Render (17/11): «si tuviera solo 9 horas, ¿qué me conviene cursar y cuántas materias puedo llevar?»
+        # se enrutó a M2 y M4 sin M3: las 9 h se descartaban en silencio y la respuesta mostraba el plan registrado como
+        # si respondiera a la hipótesis. Las horas hipotéticas solo las simula M3: se agrega su simulación y, con ella,
+        # el aviso de escenario parcial (carga, capacidad y plan no se recalculan).
+        h = enr.horas_hipoteticas
+        if (h is not None and 0 <= h <= 55 and numero_en_texto(h, texto) and resueltos
+                and not any(r["intencion"] == "riesgo_atraso" for r in resueltos)):
+            info = INTENCIONES["riesgo_atraso"]
+            resueltos.append({"intencion": "riesgo_atraso", "modulo": info.modulo, "alcance": "cursar",
+                              "filtro": "todas", "horas_hipoteticas": h})
+            traza.setdefault("correcciones", []).append(
+                f"horas hipotéticas ({h:g} h) sin pedido de riesgo de atraso: se agrega la simulación de M3")
         # sin duplicados, en el orden de la cadena de razonamiento M1 -> M4
         vistos, unicos = set(), []
         for r in sorted(resueltos, key=lambda r: ORDEN_MODULOS[r["modulo"]]):

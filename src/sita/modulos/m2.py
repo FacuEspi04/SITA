@@ -20,7 +20,10 @@ RETURN {
   periodo: [(q)-[:REFERIDA_A]->(p:Periodo) | p.id][0],
   horas_trabajo_semanales: ctx.horas_trabajo_semanales,
   carga_h: round(ev.carga_horas, 2), capacidad_h: ev.capacidad_horas, holgura_h: round(ev.holgura_horas, 2),
-  carga_anuales_en_curso_h: ev.carga_anuales_en_curso,
+  carga_anuales_en_curso_h: ev.carga_anuales_en_curso, anuales_en_curso: ev.anuales_en_curso,
+  parametros_capacidad: [(pm:ParametroModelo)
+                         WHERE pm.id IN ['dedicacion_total_sostenible', 'factor_estudio', 'horas_preparacion_final'] |
+                         {id: pm.id, valor: pm.valor, unidad: pm.unidad, estado: pm.estado, descripcion: pm.descripcion}],
   riesgo_sobrecarga: {etiqueta: rs.etiqueta, valor: round(rs.valor, 2),
                       reglas: [(rs)-[j:JUSTIFICADO_POR]->(r:ReglaDifusa) | {regla: r.id, alfa: round(j.alfa, 2)}],
                       sin_dato: rs.antecedentes_sin_dato},
@@ -101,7 +104,53 @@ def desglose_carga(t: dict) -> dict | None:
     del_periodo = round(sum(i.get("horas_semanales") or 0 for i in items), 2)
     if abs(del_periodo + anuales - total) > 0.05:
         return None
-    return {"asignaturas_del_periodo_h": del_periodo, "anuales_en_curso_h": anuales, "total_h": total}
+    d = {"asignaturas_del_periodo_h": del_periodo, "anuales_en_curso_h": anuales, "total_h": total}
+    nombres = [n for n in (t.get("anuales_en_curso") or []) if n]
+    if nombres:  # la cátedra pidió nombrarla («las 6,75 h de Proyecto Final»), no solo «anuales en curso»
+        d["anuales_en_curso"] = nombres
+    return d
+
+
+def _anuales_txt(d: dict) -> str:
+    nombres = d.get("anuales_en_curso") or []
+    if not nombres:
+        return "asignaturas anuales en curso"
+    return ("la asignatura anual en curso " if len(nombres) == 1 else "las asignaturas anuales en curso ") \
+        + " y ".join(nombres)
+
+
+def composicion_capacidad(t: dict) -> dict | None:
+    """De dónde sale la capacidad (C-02): dedicación total sostenible − horas de trabajo. Error real (corrida en Render,
+    17/11): «tu capacidad es de 25 h porque se calculó restando un ajuste por sobrecarga»; el ajuste recorta el plan,
+    no la capacidad. Solo se informa si los valores cierran con la capacidad registrada."""
+    params = {p.get("id"): p for p in t.get("parametros_capacidad") or [] if isinstance(p, dict)}
+    ded = (params.get("dedicacion_total_sostenible") or {}).get("valor")
+    trab, cap = t.get("horas_trabajo_semanales"), t.get("capacidad_h")
+    if None in (ded, trab, cap) or abs(max(ded - trab, 0) - cap) > 0.05:
+        return None
+    return {"dedicacion_sostenible_h": ded, "horas_trabajo_h": trab, "capacidad_h": cap,
+            "estado_dedicacion": (params.get("dedicacion_total_sostenible") or {}).get("estado")}
+
+
+def pistas_capacidad(t: dict) -> list[str]:
+    c = t.get("composicion_capacidad")
+    if not c:
+        return []
+    txt = (f"La capacidad ({fmt_num(c['capacidad_h'])} h) es la dedicación semanal sostenible "
+           f"({fmt_num(c['dedicacion_sostenible_h'])} h entre trabajo y estudio) menos tus horas de trabajo "
+           f"({fmt_num(c['horas_trabajo_h'])} h). El ajuste por sobrecarga no cambia la capacidad: recorta la cantidad "
+           "de materias del plan.")
+    supuestos = [p for p in t.get("parametros_capacidad") or []
+                 if isinstance(p, dict) and p.get("estado") in ("supuesto", "candidata") and p.get("valor") is not None]
+    if supuestos:
+        nombres = {"dedicacion_total_sostenible": "las {v} h semanales de dedicación sostenible",
+                   "factor_estudio": "{v} h de estudio por cada hora de clase",
+                   "horas_preparacion_final": "{v} h semanales para preparar cada final"}
+        partes = [nombres[p["id"]].format(v=fmt_num(p["valor"])) for p in supuestos if p.get("id") in nombres]
+        if partes:
+            txt += (" Son supuestos del modelo que todavía no se validaron con el asesor académico: "
+                    + ", ".join(partes[:-1]) + (" y " if len(partes) > 1 else "") + partes[-1] + ".")
+    return [txt]
 
 
 def lectura_guiada(t: dict) -> list[str]:
@@ -111,10 +160,11 @@ def lectura_guiada(t: dict) -> list[str]:
     if d:
         pistas.append(f"La carga total de {fmt_num(d['total_h'])} h se compone de {fmt_num(d['asignaturas_del_periodo_h'])} h "
                       f"de las asignaturas evaluadas para el período más {fmt_num(d['anuales_en_curso_h'])} h semanales "
-                      "de asignaturas anuales en curso; si se detallan horas por asignatura, hay que incluir las anuales.")
+                      f"de {_anuales_txt(d)}.")
     elif t.get("carga_anuales_en_curso_h"):
         pistas.append(f"La carga incluye {fmt_num(t['carga_anuales_en_curso_h'])} h semanales de asignaturas "
                       "anuales en curso.")
+    pistas += pistas_capacidad(t)
     pistas += pistas_riesgo_sobrecarga(t.get("riesgo_sobrecarga"))
     advs = [a.get("mensaje") for a in (t.get("advertencias_m2") or []) if a.get("mensaje")]
     if advs:
@@ -145,5 +195,7 @@ def ejecutar(kb, intencion: str, p: dict) -> Seccion:
     t["glosario_reglas"] = _completar_glosario(t)
     if desglose_carga(t):
         t["desglose_carga"] = desglose_carga(t)
+    if composicion_capacidad(t):
+        t["composicion_capacidad"] = composicion_capacidad(t)
     t["lectura_guiada"] = lectura_guiada(t)
     return Seccion("M2", intencion, CAPACIDAD_M2, "M2_CAPACIDAD", params, t, resultado_crudo=r)

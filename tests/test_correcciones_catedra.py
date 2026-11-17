@@ -160,3 +160,168 @@ def test_sin_horas_hipoteticas_no_hay_aviso_de_escenario_parcial(tmp_path):
     t = orq(tmp_path, rutas, ["Tu carga es de 31 h y tu capacidad de 25 h."]).procesar(texto)
     assert "escenario_parcial" not in t["paquete_llm"]
     assert PLAN_JUAN["excluidos"]  # el plan sigue disponible sin simulación
+
+
+# ------------------------------------------------------------------ segunda revisión (corrida en Render, 17/11)
+CAP_JUAN_CON_NOMBRES = {**CAP_JUAN_COMPLETA, "anuales_en_curso": ["Proyecto Final"]}
+DESGLOSE_SIN_NOMBRE = (
+    "En el período 2027-2C tenés cuatro asignaturas evaluadas: Tecnología para la Automatización 6,75 h, Inteligencia "
+    "Artificial 6,75 h, Ciencia de Datos 6,75 h (las tres para cursar) y Simulación 4,0 h (para rendir). Ese conjunto "
+    "aporta 24,25 h. A esas se añaden 6,75 h de las asignaturas anuales que continúan, llegando al total de 31 h.")
+
+
+def test_m2_desglose_y_lectura_nombran_la_anual_en_curso():
+    d = desglose_carga(CAP_JUAN_CON_NOMBRES)
+    assert d["anuales_en_curso"] == ["Proyecto Final"]
+    lectura = " ".join(lectura_guiada({**CAP_JUAN_CON_NOMBRES, "desglose_carga": d}))
+    assert "6,75 h semanales de la asignatura anual en curso Proyecto Final" in lectura
+
+
+def test_e2e02_desglose_que_no_nombra_la_anual_se_detecta():
+    p = paquete_m2({**CAP_JUAN_CON_NOMBRES, "desglose_carga": desglose_carga(CAP_JUAN_CON_NOMBRES)})
+    fallas = verificar(DESGLOSE_SIN_NOMBRE, p)
+    assert "desglose_incompleto" in fallas and "Proyecto Final" in fallas["desglose_incompleto"][0]
+    buena = DESGLOSE_SIN_NOMBRE.replace("de las asignaturas anuales que continúan", "de Proyecto Final, anual en curso")
+    assert "desglose_incompleto" not in verificar(buena, p)
+    assert "desglose_incompleto" not in verificar("Tu carga es de 31 h semanales y tu capacidad de 25 h.", p)
+
+
+def paquete_rendir_ia(**extra_m1):
+    return {"pregunta": "", "contexto": {}, "no_evaluado": [], "secciones": [
+        {"modulo": "M1", "tipo_decision": "habilitacion_normativa_M1", "resultado": {
+            "asignatura": {"nombre": "Inteligencia Artificial", "estado_en_historia": "pendiente (sin registro)"},
+            "alcance_consultado": "rendir", "sin_dictamen": "...", **extra_m1,
+            "advertencias": [{"tipo": "cursa_sin_rendir",
+                              "mensaje": "Puede cursar Inteligencia Artificial pero no rendirla hasta aprobar Simulación"}]}}]}
+
+
+def test_e2e02_regularizar_la_correlativa_en_el_cierre_se_detecta():
+    p = paquete_rendir_ia()
+    mala = ("Podés cursar Inteligencia Artificial, pero no podés rendir el final hasta que apruebes Simulación. "
+            "Si necesitás confirmar algún dato o gestionar la regularización de Simulación, podés consultar al asesor "
+            "académico.")
+    assert "requisito_para_rendir" in verificar(mala, p)
+    buena = ("Podés cursar Inteligencia Artificial, pero no podés rendir el final hasta que apruebes Simulación; no "
+             "alcanza con regularizar Simulación. Si tenés dudas, consultá al asesor académico.")
+    assert "requisito_para_rendir" not in verificar(buena, p)
+
+
+def test_regularizar_la_correlativa_es_valido_si_un_dictamen_lo_exige():
+    # Caso Lucía: la regularidad de Simulación venció y un bloqueo exige regularizarla para cursar.
+    p = paquete_rendir_ia()
+    p["secciones"].append({"modulo": "M1", "tipo_decision": "habilitacion_normativa_M1", "resultado": {
+        "asignatura": {"nombre": "Sistemas de Gestión"}, "alcance_consultado": "cursar",
+        "dictamen": {"tipo": "BloqueoDirecto", "causas": [
+            {"correlatividad": "28-27-REG", "tipo": "regularidad", "asignatura": "Simulación"}]}}})
+    texto = ("Para cursar Sistemas de Gestión tenés que regularizar Simulación. Para rendir el final de Inteligencia "
+             "Artificial tenés que aprobar Simulación.")
+    assert "requisito_para_rendir" not in verificar(texto, p)
+
+
+# ------------------------------------------------------------------ tercera revisión (resto de la corrida en Render)
+from sita.modulos.m1 import factores_confiabilidad  # noqa: E402
+from sita.modulos.m2 import composicion_capacidad  # noqa: E402
+
+PARAMS = [{"id": "dedicacion_total_sostenible", "valor": 55.0, "estado": "supuesto"},
+          {"id": "factor_estudio", "valor": 0.5, "estado": "supuesto"},
+          {"id": "horas_preparacion_final", "valor": 4.0, "estado": "supuesto"}]
+CAP_JUAN_PARAMS = {**CAP_JUAN_COMPLETA, "horas_trabajo_semanales": 30, "capacidad_h": 25.0, "parametros_capacidad": PARAMS}
+
+
+def test_m2_explica_de_donde_sale_la_capacidad_y_que_es_un_supuesto():
+    c = composicion_capacidad(CAP_JUAN_PARAMS)
+    assert c["dedicacion_sostenible_h"] == 55.0 and c["horas_trabajo_h"] == 30
+    lectura = " ".join(lectura_guiada({**CAP_JUAN_PARAMS, "composicion_capacidad": c}))
+    assert "dedicación semanal sostenible (55 h" in lectura and "menos tus horas de trabajo (30 h)" in lectura
+    assert "no cambia la capacidad" in lectura and "supuestos del modelo" in lectura
+    assert "si se detallan" not in lectura                     # la instrucción al LLM ya no viaja en los datos
+    assert composicion_capacidad({**CAP_JUAN_PARAMS, "capacidad_h": 20.0}) is None   # no cierra: no se informa
+
+
+def test_capacidad_atribuida_al_ajuste_se_detecta():
+    p = paquete_m2(CAP_JUAN_PARAMS)
+    mala = ("Tu capacidad es de 25 horas semanales porque se calculó restando un ajuste por sobrecarga a la capacidad "
+            "base. El riesgo de sobrecarga se evaluó como alto, lo que activó una reducción de una unidad en la capacidad "
+            "disponible.")
+    fallas = verificar(mala, p)
+    assert len(fallas["causa_de_capacidad"]) == 2
+    buena = ("Tu capacidad es de 25 h: es la dedicación semanal sostenible de 55 h menos tus 30 h de trabajo. Como la "
+             "carga supera la capacidad, por eso se aplicó un ajuste por sobrecarga que recortó el plan. El ajuste no "
+             "cambia tu capacidad.")
+    assert "causa_de_capacidad" not in verificar(buena, p)
+
+
+def test_martina_certeza_inventada_se_detecta():
+    mala = ("El riesgo de atraso que te calcularon es alto y, según los datos, tiene un nivel de certeza alto. La "
+            "confiabilidad de la información es alta (0,778), por lo que podés considerarlo bastante fiable.")
+    assert len(verificar(mala, {"secciones": [], "contexto": {}}).get("certeza_inventada", [])) == 2
+    buena = ("Tu riesgo de atraso es alto (0,721): es un grado entre 0 y 1, no una certeza. Los datos de tu historia "
+             "son confiables, pero los criterios del cálculo todavía están en revisión. Podés cursar Seguridad en los "
+             "Sistemas de Información más adelante; no hay certeza de que el riesgo se mantenga.")
+    assert "certeza_inventada" not in verificar(buena, {"secciones": [], "contexto": {}})
+
+
+HIST_SOFIA = {"historia": {"inconsistencias": 0, "antiguedad_meses": 18.14, "completitud": 0.917},
+              "mediciones_m1": [{"etiqueta": "antigua", "valor": 18.136, "variable": "antiguedad_meses"},
+                                {"etiqueta": "alta", "valor": 0.917, "variable": "completitud"}],
+              "confiabilidad": {"etiqueta": "baja", "valor": 0.244}}
+
+
+def test_sofia_completitud_alta_presentada_como_causa_se_detecta():
+    f = factores_confiabilidad(HIST_SOFIA)
+    assert f["desfavorables"] == ["antiguedad_meses"] and f["favorables"] == ["completitud"]
+    assert "es favorable y no es la causa" in f["explicacion"]
+    p = {"contexto": {}, "secciones": [{"modulo": "M1", "resultado": {**HIST_SOFIA, "factores_confiabilidad": f}}]}
+    mala = ("La consulta se cortó porque la historia académica que figura está desactualizada (tiene 18 meses de "
+            "antigüedad) y la completitud es solo 0,92, lo que da una confiabilidad baja (0,244).")
+    assert "factor_de_confiabilidad" in verificar(mala, p)
+    buena_real = ("En el módulo que pediste, el sistema constató que la antigüedad de la información es de 18,14 meses "
+                  "y que la completitud es 0,917; con esos valores la confiabilidad quedó etiquetada como baja.")
+    assert "factor_de_confiabilidad" not in verificar(buena_real, p)
+    # el respaldo explica la causa real
+    assert "antigüedad" in respaldo.respaldo(p) and "no es la causa" in respaldo.respaldo(p)
+
+
+def test_e2e04_borradores_correctos_ya_no_se_rechazan():
+    p = paquete_m2(CAP_JUAN_COMPLETA, escenario_parcial={"aclaracion": "..."})
+    p["secciones"].append({"modulo": "M3", "tipo_decision": "riesgo_de_atraso_M3", "resultado": RIESGO_JUAN_9H})
+    borrador2 = ("Con 9 horas semanales tu riesgo de atraso pasa a alto (valor 0,664), mientras que antes estaba en "
+                 "medio (valor 0,505). En tu situación actual la carga total es de 31 h semanales. La simulación con "
+                 "9 h semanales se realizó solo para el riesgo de atraso; la carga, la capacidad y el plan recomendado "
+                 "siguen siendo los que aparecen registrados.")
+    assert "escenario_parcial" not in verificar(borrador2, p)
+
+
+def test_e2e04_suma_atribuida_solo_al_periodo_se_detecta():
+    p = paquete_m2({**CAP_JUAN_COMPLETA, "desglose_carga": desglose_carga(CAP_JUAN_COMPLETA)})
+    mala = ("En cuanto a la carga y capacidad, la suma de las materias que debés cursar (Tecnología para la "
+            "Automatización, Inteligencia Artificial, Ciencia de Datos y Simulación) da 31 h, superando la capacidad.")
+    assert "desglose_incompleto" in verificar(mala, p)
+
+
+def test_respaldo_no_muestra_ids_ni_instrucciones():
+    r = {**CAP_JUAN_PARAMS, "riesgo_sobrecarga": {"etiqueta": "alto", "valor": 0.77,
+                                                  "reglas": [{"regla": "RS1", "alfa": 0.8}]}}
+    r["desglose_carga"] = desglose_carga(r)
+    r["composicion_capacidad"] = composicion_capacidad(r)
+    r["lectura_guiada"] = lectura_guiada(r)
+    texto = respaldo.respaldo(paquete_m2(r))
+    assert "RS1" not in texto and "si se detallan" not in texto and "Riesgo de sobrecarga: alto" in texto
+
+
+def test_alcance_como_nombre_de_campo_es_jerga():
+    fallas = verificar("Inteligencia Artificial: 6,75 h/semana (alcance cursar).", {"secciones": [], "contexto": {}})
+    assert any("alcance cursar" in x for x in fallas.get("jerga", []))
+
+
+T_JUAN_9H_PLAN = "Legajo 47890, si tuviera solo 9 horas por semana, ¿qué me conviene cursar y cuántas materias puedo llevar?"
+
+
+def test_horas_hipoteticas_sin_pedido_de_riesgo_agregan_la_simulacion(tmp_path):
+    rutas = {T_JUAN_9H_PLAN: enrutamiento("47890", None, [("M4", "plan", [], None), ("M2", "capacidad", [], None)],
+                                          horas=9)}
+    t = orq(tmp_path, rutas, [BUENA_JUAN_9H], kb=KBJuan9h()).procesar(T_JUAN_9H_PLAN)
+    sim = [p for p in t["pedidos_resueltos"] if p["intencion"] == "riesgo_atraso"]
+    assert sim and sim[0]["horas_hipoteticas"] == 9
+    assert "escenario_parcial" in t["paquete_llm"]
+    assert any("se agrega la simulación" in c for c in t.get("correcciones", []))
