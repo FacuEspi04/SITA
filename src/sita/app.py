@@ -10,7 +10,9 @@ Ejecutar: python -m sita --servidor   (o: uvicorn sita.app:app --port 8000)
 """
 from __future__ import annotations
 
+import logging
 import os
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -25,6 +27,7 @@ app = FastAPI(title="SITA — Sistema Inteligente de Trayectoria Académica", ve
               description="Asistente unificado del Grupo 19 (UTN FRM, IA 2026): M1 habilitación, M2 carga, "
                           "M3 riesgo de atraso, M4 planificación. Conocimiento en Neo4j; LLM como interfaz.")
 _estado: dict = {"orq": None}
+log = logging.getLogger("uvicorn.error")
 
 # Frontend desplegado aparte (p. ej. Vercel): SITA_CORS_ORIGINS="https://sita.vercel.app,https://otro.dominio"
 _ORIGENES = [o.strip().rstrip("/") for o in os.getenv("SITA_CORS_ORIGINS", "").split(",") if o.strip()]
@@ -41,8 +44,10 @@ def configurar(orquestador) -> None:
 def orq():
     if _estado["orq"] is None:
         from .servicios import crear
+        log.info("SITA: conectando con Neo4j y el LLM…")
         _, _, o = crear()
         _estado["orq"] = o
+        log.info("SITA: listo · Neo4j vía %s · LLM %s", getattr(o.kb, "transporte", "?"), getattr(o.llm, "nombre", "?"))
     return _estado["orq"]
 
 
@@ -64,7 +69,10 @@ class Respuesta(BaseModel):
 
 @app.post("/consultar", response_model=Respuesta)
 def consultar(c: Consulta) -> Respuesta:
+    t0 = time.perf_counter()
+    log.info("SITA: consulta recibida (sesión %s): %s", c.sesion_id, c.texto[:80])
     t = orq().procesar(c.texto, sesion_id=c.sesion_id)
+    log.info("SITA: respondida en %.1f s · flujo %s · traza %s", time.perf_counter() - t0, t.get("flujo"), t.get("traza_id"))
     v = t.get("verificacion") or {}
     ultimo = (v.get("intentos") or [{}])[-1].get("fallas") or {}
     return Respuesta(traza_id=t["traza_id"], respuesta=t["respuesta"], fundamento=t.get("fundamento"),

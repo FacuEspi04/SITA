@@ -239,14 +239,26 @@ async function preguntar(q) {
   const ta = el("div", "turno asistente");
   const logo = el("div", "logo avatar girando", "S");
   const cuerpo = el("div", "cuerpo");
-  cuerpo.appendChild(el("div", "pensando", `<span class="shimmer">Consultando la base de conocimiento…</span>`));
+  const espera = el("div", "pensando", `<span class="shimmer">Consultando la base de conocimiento…</span><span class="motivo" data-seg>0 s</span>`);
+  cuerpo.appendChild(espera);
   ta.append(logo, cuerpo); chat.appendChild(ta); abajo();
 
   const t0 = performance.now();
+  const ctrl = new AbortController();
+  const LIMITE = 10 * 60;   // s: igual que LLM_TIMEOUT por defecto
+  const reloj = setInterval(() => {
+    const s = Math.round((performance.now() - t0) / 1000);
+    espera.querySelector("[data-seg]").textContent = s + " s";
+    const txt = s < 30 ? "Consultando la base de conocimiento…"
+      : s < 90 ? "Redactando y verificando la explicación…"
+      : "Sigue trabajando: el proveedor del LLM puede estar limitando el uso…";
+    espera.querySelector(".shimmer").textContent = txt;
+    if (s >= LIMITE) ctrl.abort();
+  }, 1000);
   try {
     const r = await fetch(API + "/consultar", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ texto: q, sesion_id: sesion }),
+      body: JSON.stringify({ texto: q, sesion_id: sesion }), signal: ctrl.signal,
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(typeof j.detail === "string" ? j.detail : "error " + r.status);
@@ -255,8 +267,10 @@ async function preguntar(q) {
     cuerpo.appendChild(meta(j, ((performance.now() - t0) / 1000)));
   } catch (err) {
     cuerpo.innerHTML = "";
-    cuerpo.appendChild(el("div", "texto error", "No pude procesar la consulta: " + esc(err.message)));
+    const msg = err.name === "AbortError" ? `no hubo respuesta en ${LIMITE / 60} minutos` : err.message;
+    cuerpo.appendChild(el("div", "texto error", "No pude procesar la consulta: " + esc(msg)));
   } finally {
+    clearInterval(reloj);
     logo.classList.remove("girando");
     ocupado = false; actualizarBoton(); entrada.focus(); abajo();
   }

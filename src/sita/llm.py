@@ -9,6 +9,7 @@ Incluye los manejos que cada integrante resolvió por separado:
 """
 from __future__ import annotations
 
+import logging
 import re
 import time
 
@@ -16,6 +17,9 @@ import requests
 
 from .config import Config
 from .textos import limpiar_texto
+
+
+log = logging.getLogger("uvicorn.error")
 
 
 class ErrorLLM(RuntimeError):
@@ -75,14 +79,29 @@ class LLM:
 
     def _post(self, url: str, headers: dict, body: dict) -> dict:
         for intento in range(6):
+            t0 = time.perf_counter()
             r = requests.post(url, headers=headers, json=body, timeout=self.cfg.llm_timeout)
+            log.info("SITA: LLM %s respondió %s en %.1f s", self.nombre, r.status_code, time.perf_counter() - t0)
             if r.status_code == 429 and intento < 5:
-                time.sleep(self._espera_429(r))
+                espera = self._espera_429(r)
+                log.warning("SITA: el proveedor del LLM limitó el uso (429); espero %.0f s y reintento (%d/5)",
+                            espera, intento + 1)
+                time.sleep(espera)
+                continue
+            if r.status_code in (500, 502, 503, 504) and intento < 5:
+                # proveedor saturado o caído un momento (p. ej. Gemini 503 «high demand»): espera creciente
+                espera = (3, 6, 12, 20, 30)[intento]
+                log.warning("SITA: el proveedor del LLM respondió %s (saturado); espero %d s y reintento (%d/5)",
+                            r.status_code, espera, intento + 1)
+                time.sleep(espera)
                 continue
             if r.status_code >= 400:
                 raise ErrorLLM(f"{self.nombre} respondió {r.status_code}: {r.text[:400]}")
             return r.json()
-        raise ErrorLLM("Límite de uso del proveedor: reintentá en unos segundos.")
+        if r.status_code == 429:
+            raise ErrorLLM("Límite de uso del proveedor: reintentá en unos segundos.")
+        raise ErrorLLM(f"{self.nombre} sigue respondiendo {r.status_code} después de varios reintentos "
+                       "(modelo saturado): probá en unos minutos o cambiá LLM_MODEL.")
 
     def _openai(self, system: str, user: str, json_mode: bool, max_tokens: int) -> str:
         body = {"model": self.modelo, "temperature": 0, "max_tokens": max(max_tokens, 1500),
