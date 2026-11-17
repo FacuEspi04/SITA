@@ -19,6 +19,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
@@ -28,6 +29,7 @@ from .trazabilidad import auditar
 app = FastAPI(title="SITA — Sistema Inteligente de Trayectoria Académica", version=__version__,
               description="Asistente unificado del Grupo 19 (UTN FRM, IA 2026): M1 habilitación, M2 carga, "
                           "M3 riesgo de atraso, M4 planificación. Conocimiento en Neo4j; LLM como interfaz.")
+app.add_middleware(GZipMiddleware, minimum_size=1024)   # el logo vectorial (~190 KB) viaja comprimido
 _estado: dict = {"orq": None}
 log = logging.getLogger("uvicorn.error")
 
@@ -142,16 +144,16 @@ def config_js() -> Response:
     return Response('window.SITA_API = "";\n', media_type="application/javascript")
 
 
-_LOGO = Path(__file__).parent / "web" / "logo.png"
+_LOGO = Path(__file__).parent / "web" / "logo.svg"
 
 
-@app.get("/logo.png", include_in_schema=False)
+@app.get("/logo.svg", include_in_schema=False)
 @app.get("/favicon.ico", include_in_schema=False)
 def logo() -> Response:
-    """Logotipo de SITA (encabezado de la interfaz y pestaña del navegador)."""
+    """Logotipo de SITA, vectorial y sin fondo (encabezado de la interfaz y pestaña del navegador)."""
     if not _LOGO.exists():
         raise HTTPException(404, "Sin logotipo.")
-    return Response(_LOGO.read_bytes(), media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+    return Response(_LOGO.read_bytes(), media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
 
 
 PAGINA = """<!DOCTYPE html>
