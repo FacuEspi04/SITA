@@ -84,6 +84,8 @@ def _m3(s: dict) -> list[str]:
                        f"{reg.get('etiqueta', 'sin dato')}. Es una simulación, no tu situación registrada.")
         else:
             out.append(f"Tu riesgo de atraso es {ra.get('etiqueta')}.")
+        if (r.get("causa_del_riesgo") or {}).get("explicacion"):
+            out.append(r["causa_del_riesgo"]["explicacion"])
     arr = [a.get("asignatura") for a in r.get("arrastres") or []]
     if arr:
         out.append(f"Arrastrás {_lista(arr)}.")

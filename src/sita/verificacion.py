@@ -14,6 +14,7 @@ normativas del caso»). Cada control nuevo está pensado contra un error real ob
   causa_de_capacidad ...... «capacidad de 25 h porque se restó un ajuste por sobrecarga» (el ajuste recorta el plan)
   certeza_inventada ....... «el riesgo tiene un nivel de certeza alto… podés considerarlo bastante fiable» (Martina)
   factor_de_confiabilidad . «la completitud es solo 0,92» cuando es alta y la causa es la antigüedad (Sofía)
+  causa_del_riesgo ........ «el riesgo se apoya en la ruta crítica y los cuellos de botella» (lo produce el arrastre)
 
 Los controles se dividen en GRAVES (si persisten tras la reescritura, se usa la respuesta de respaldo
 determinística) y LEVES (forma: se pide reescritura y, si persisten, se registran).
@@ -29,7 +30,8 @@ GRAVES = {"vacia", "numeros_sin_respaldo", "ids_sin_respaldo", "tipo_de_decision
           "cobertura_normativa", "causa_de_exclusion", "magnitudes_cruzadas", "instituciones_inventadas",
           "porcentaje_o_probabilidad", "idioma", "sin_dictamen", "requisito_para_rendir", "escenario_hipotetico",
           "etiqueta_inventada", "llave_inventada", "riesgo_negado", "causa_de_corte", "desglose_incompleto",
-          "escenario_parcial", "causa_de_capacidad", "certeza_inventada", "factor_de_confiabilidad"}
+          "escenario_parcial", "causa_de_capacidad", "certeza_inventada", "factor_de_confiabilidad",
+          "causa_del_riesgo"}
 
 INSTRUCCION = {
     "vacia": "escribí la respuesta completa",
@@ -67,6 +69,8 @@ INSTRUCCION = {
                           "los datos de la historia, no la exactitud del cálculo"),
     "factor_de_confiabilidad": ("atribuí la confiabilidad baja solo a los factores desfavorables; un factor favorable "
                                 "(p. ej. completitud alta) no es la causa"),
+    "causa_del_riesgo": ("el riesgo de atraso lo produce lo que dice causa_del_riesgo (p. ej. la criticidad del arrastre); "
+                         "la ruta crítica y los cuellos de botella no son entradas de ese cálculo"),
 }
 
 JERGA = ["json", "neo4j", "cypher", "grafo", "traza", "lectura guiada", "base de datos", "seccion", "modulo m"]
@@ -77,6 +81,7 @@ RE_TUTEO = re.compile(r"\b(tienes|puedes|debes|quieres|necesitas|usted|tú)\b", 
 RE_PORTUGUES = re.compile(r"[ãõç]|\b(você|vocês|não|também|então|ainda|isso|porém|são|matéria|obrigad[oa])\b", re.I)
 RE_JERGA_INTERNA = re.compile(r"\b(Q-[A-Z0-9-]+|ConfiabilidadDato|contexto\s*M1|bajo\s+supuesto)\b"
                               r"|\balcance:?\s+(cursar|rendir)\b"
+                              r"|\betiqueta:?\s+(alt|medi|baj)[oa]\b"
                               r"|\b(regla|criterio|estado|condicion)\s+(es\s+|esta\s+)?candidat\w*", re.I)
 RE_INGLES = re.compile(r"\b(the|you|your|cannot|with|because|and)\b", re.I)
 RE_NEGACION = re.compile(r"\b(no|ni|sin|tampoco|ningun\w*)\b")
@@ -425,7 +430,16 @@ def escenario_parcial(resp: str, paquete: dict) -> list[str]:
     t = sin_acentos(resp)
     if not RE_TEMA_REGISTRADO.search(t):
         return []
-    for o in _oraciones(resp):
+    # Corrida en Render (17/11): «Sí, podés llevar tres materias: …» como primera oración ante «si tuviera solo 9 horas,
+    # ¿cuántas materias puedo llevar?». La aclaración llegaba recién al final; la respuesta directa era la registrada.
+    oraciones = _oraciones(resp)
+    if oraciones:
+        primera = sin_acentos(oraciones[0])
+        if (re.search(r"\b(podes|vas a poder) (llevar|cursar|tomar)\b|\bmaterias\b", primera)
+                and not RE_NO_RECALCULADO.search(primera)
+                and not re.search(r"registrad|no se recalcul|situacion actual|hoy\b", primera)):
+            return ["abre respondiendo con el plan registrado como si fuera el resultado de las horas hipotéticas"]
+    for o in oraciones:
         so = sin_acentos(o)
         if RE_TEMA_REGISTRADO.search(so) and RE_NO_RECALCULADO.search(so):
             return []
@@ -497,6 +511,30 @@ def factor_de_confiabilidad(resp: str, paquete: dict) -> list[str]:
             m = rx.search(so) if rx else None
             if m and not _span_negado(so[max(0, m.start() - 30):m.start()]):
                 problemas.append(f"presenta {var} (favorable) como causa de la confiabilidad baja: «{o.strip()[:140]}»")
+    return problemas
+
+
+RE_CAUSA_ESTRUCTURA = re.compile(
+    r"\b(se apoya|se basa|se debe|depende|surge|deriva|lo (producen?|explican?|generan?|causan?)|es consecuencia|"
+    r"a causa|porque|debido)\b[^.;]{0,60}(ruta critica|cuellos? de botella)"
+    r"|(ruta critica|cuellos? de botella)[^.;]{0,120}\b(eleva|aumenta|sube|explica|genera|produce|causa)\w* (el|tu|ese) riesgo")
+RE_CAUSA_ESTRUCTURA_NEGADA = re.compile(r"no (son|es|depende|se apoya|se basa|entran?|forman parte)\b|\bni\b")
+
+
+def causa_del_riesgo(resp: str, paquete: dict) -> list[str]:
+    """Corrida en Render (17/11, Martina): «ese riesgo se apoya en la ruta crítica… y en los cuellos de botella», cuando
+    lo produce la criticidad del arrastre de Sistemas Operativos (E-08d). La ruta crítica y los cuellos de botella no
+    son entradas del sistema difuso del riesgo de atraso."""
+    causas = [s["resultado"].get("causa_del_riesgo") for s in _secciones(paquete) if s.get("modulo") == "M3"]
+    causas = [c for c in causas if isinstance(c, dict)]
+    if not causas:
+        return []
+    problemas = []
+    for o in _oraciones(resp):
+        so = sin_acentos(o)
+        m = RE_CAUSA_ESTRUCTURA.search(so)
+        if m and "riesgo" in so and not RE_CAUSA_ESTRUCTURA_NEGADA.search(so):
+            problemas.append(f"atribuye el riesgo de atraso a la ruta crítica o a los cuellos de botella: «{o.strip()[:140]}»")
     return problemas
 
 
@@ -769,6 +807,7 @@ def verificar(respuesta: str, paquete: dict, ids_en_cuerpo: bool = False) -> dic
         "causa_de_capacidad": causa_de_capacidad(r, paquete),
         "certeza_inventada": certeza_inventada(r),
         "factor_de_confiabilidad": factor_de_confiabilidad(r, paquete),
+        "causa_del_riesgo": causa_del_riesgo(r, paquete),
         "jerga": jerga(r),
         "voseo": sorted(set(m.lower() for m in RE_TUTEO.findall(r))),
         "idioma": idioma(r),

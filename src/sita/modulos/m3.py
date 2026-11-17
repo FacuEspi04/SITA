@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import math
 
+from ..textos import fmt_num, sin_acentos
 from .base import ESTRUCTURA_M3, RIESGO_M3, Seccion, sin_datos
 
 
@@ -272,7 +273,45 @@ def ejecutar(kb, intencion: str, p: dict) -> Seccion:
     r = kb.valor(qid, cy, **params)
     if r is None:
         return sin_datos("M3", intencion, tipo, qid, params, "No hay una consulta de riesgo registrada para ese legajo.")
-    return Seccion("M3", intencion, tipo, qid, params, armar_evidencia(r), resultado_crudo=r)
+    ev = armar_evidencia(r)
+    if intencion == "riesgo_atraso":
+        causa = causa_del_riesgo(ev)
+        if causa:
+            ev["causa_del_riesgo"] = causa
+    return Seccion("M3", intencion, tipo, qid, params, ev, resultado_crudo=r)
+
+
+# Entradas del sistema difuso SD-M3-RIESGO (E-08d a E-12d en la base): arrastre y su criticidad, proximidad de
+# vencimiento y capacidad disponible. La ruta crítica y los cuellos de botella NO son entradas de ese cálculo.
+ENTRADAS_RIESGO = (("arrastre", "la criticidad del arrastre"), ("proximidad", "la cercanía de los vencimientos"),
+                   ("capacidad", "la capacidad disponible"))
+
+
+def causa_del_riesgo(ev: dict) -> dict | None:
+    """Qué produjo el riesgo de atraso (corrida en Render 17/11, Martina): la respuesta decía «ese riesgo se apoya en la
+    ruta crítica… y en los cuellos de botella», cuando lo produce E-08d, la criticidad del arrastre de Sistemas
+    Operativos (grado 0,641). Se toma la regla de mayor activación con el mismo consecuente que la etiqueta."""
+    ra = ev.get("riesgo_atraso") or {}
+    reglas = [x for x in ev.get("reglas_difusas") or []
+              if isinstance(x, dict) and x.get("consecuente") == ra.get("etiqueta") and x.get("alfa")]
+    if not reglas:
+        return None
+    dom = max(reglas, key=lambda x: x["alfa"])
+    texto = sin_acentos(dom.get("enunciado", "")).split("entonces")[0]
+    entradas = [desc for clave, desc in ENTRADAS_RIESGO if clave in texto]
+    arrastres = [a.get("asignatura") for a in ev.get("arrastres") or [] if isinstance(a, dict) and a.get("asignatura")]
+    partes = [f"{d} de {_lista(arrastres)}" if "arrastre" in d and arrastres else d for d in entradas]
+    explicacion = (f"El riesgo de atraso {ra.get('etiqueta')} lo produce {_lista(partes) or 'la regla activada'} "
+                   f"(la regla de mayor activación, con grado {fmt_num(dom['alfa'])}).")
+    if ev.get("ruta_critica") or ev.get("cuellos_de_botella"):
+        explicacion += (" La ruta crítica y los cuellos de botella describen tu trayectoria, pero no son entradas de "
+                        "este cálculo.")
+    return {"entradas": entradas, "arrastres": arrastres, "grado": dom["alfa"], "explicacion": explicacion}
+
+
+def _lista(xs) -> str:
+    xs = [str(x) for x in xs if x]
+    return xs[0] if len(xs) == 1 else (", ".join(xs[:-1]) + " y " + xs[-1] if xs else "")
 
 
 # ------------------------------------------------------------------ verificación de la inferencia difusa (PI4 de M3)

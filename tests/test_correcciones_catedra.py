@@ -364,3 +364,58 @@ def test_otra_asignatura_como_sujeto_de_llave_no_es_falso_positivo():
     texto = ("Ya tenés una ruta crítica formada por Sistemas Operativos, Redes de Datos y Seguridad en los Sistemas de "
              "Información, y que Análisis Numérico figura como asignatura llave con grado 0,641.")
     assert "llave_inventada" not in verificar(texto, p)
+
+
+# ------------------------------------------------------------------ quinta revisión (Render, tras C-64 a C-66)
+from sita.modulos.m3 import causa_del_riesgo  # noqa: E402
+
+RIESGO_MARTINA = {
+    "riesgo_atraso": {"etiqueta": "alto", "valor": 0.721, "grados": {"bajo": 0.0, "medio": 0.211, "alto": 0.641}},
+    "reglas_difusas": [
+        {"id": "E-08d", "estado": "candidata", "alfa": 0.641, "consecuente": "alto",
+         "enunciado": "SI criticidad del arrastre ES alta ENTONCES riesgo_atraso ES alto"},
+        {"id": "E-12d", "estado": "candidata", "alfa": 0.211, "consecuente": "medio",
+         "enunciado": "SI criticidad del arrastre ES baja O media ENTONCES riesgo_atraso ES medio"}],
+    "arrastres": [{"asignatura": "Sistemas Operativos", "grado_llave": 0.641}],
+    "ruta_critica": ["Sistemas Operativos", "Redes de Datos", "Seguridad en los Sistemas de Información"],
+    "cuellos_de_botella": [{"asignatura": "Diseño de Sistemas de Información", "proporcion": 0.667}],
+    "asignaturas_llave": [{"asignatura": "Sistemas Operativos", "grado_llave": 0.641}]}
+
+
+def test_m3_causa_del_riesgo_es_el_arrastre():
+    c = causa_del_riesgo(RIESGO_MARTINA)
+    assert c["arrastres"] == ["Sistemas Operativos"] and c["grado"] == 0.641
+    assert "la criticidad del arrastre de Sistemas Operativos" in c["explicacion"]
+    assert "no son entradas de este cálculo" in c["explicacion"]
+
+
+def test_martina_riesgo_atribuido_a_la_ruta_critica_se_detecta():
+    r = {**RIESGO_MARTINA, "causa_del_riesgo": causa_del_riesgo(RIESGO_MARTINA)}
+    p = {"contexto": {}, "secciones": [{"modulo": "M3", "tipo_decision": "riesgo_de_atraso_M3", "resultado": r}]}
+    mala = ("Ese riesgo se apoya en la ruta crítica de asignaturas pendientes —Sistemas Operativos, Redes de Datos y "
+            "Seguridad en los Sistemas de Información— y en los cuellos de botella detectados.")
+    assert "causa_del_riesgo" in verificar(mala, p)
+    buena = ("Tu riesgo de atraso es alto porque arrastrás Sistemas Operativos, una materia llave con criticidad alta. "
+             "La ruta crítica pasa por Sistemas Operativos, Redes de Datos y Seguridad en los Sistemas de Información, "
+             "pero no es la causa del riesgo.")
+    assert "causa_del_riesgo" not in verificar(buena, p)
+    assert "arrastre de Sistemas Operativos" in respaldo.respaldo(p)
+
+
+def test_e2e04_abrir_con_el_plan_registrado_ante_la_hipotesis_se_detecta():
+    p = paquete_m2(CAP_JUAN_COMPLETA, escenario_parcial={"aclaracion": "..."})
+    p["secciones"].append({"modulo": "M3", "tipo_decision": "riesgo_de_atraso_M3", "resultado": RIESGO_JUAN_9H})
+    mala = ("Sí, podés llevar tres materias: Simulación (para rendir) y, como cursadas, Tecnología para la Automatización "
+            "e Inteligencia Artificial. Recordá que la simulación solo afectó al riesgo de atraso; la carga, la capacidad "
+            "y el plan recomendado siguen basados en tu situación registrada.")
+    assert "escenario_parcial" in verificar(mala, p)
+    buena = ("Con 9 horas no se recalculó cuántas materias podés llevar: el plan de 3 materias corresponde a tu situación "
+             "registrada. En la simulación, tu riesgo de atraso pasaría de medio a alto. La carga, la capacidad y el plan "
+             "siguen basados en tu situación registrada.")
+    assert "escenario_parcial" not in verificar(buena, p)
+
+
+def test_etiqueta_y_valor_como_campos_son_jerga():
+    fallas = verificar("La confiabilidad es alta (etiqueta alta, valor 0,778).", {"secciones": [], "contexto": {}})
+    assert any("etiqueta alta" in x for x in fallas.get("jerga", []))
+    assert "jerga" not in verificar("El riesgo está etiquetado como alto.", {"secciones": [], "contexto": {}})
