@@ -419,3 +419,51 @@ def test_etiqueta_y_valor_como_campos_son_jerga():
     fallas = verificar("La confiabilidad es alta (etiqueta alta, valor 0,778).", {"secciones": [], "contexto": {}})
     assert any("etiqueta alta" in x for x in fallas.get("jerga", []))
     assert "jerga" not in verificar("El riesgo está etiquetado como alto.", {"secciones": [], "contexto": {}})
+
+
+# ------------------------------------------------------------------ sexta revisión (Render 18/11, tras C-67)
+RIESGO_JUAN_9H_REAL = {
+    "escenario_hipotetico": True,
+    "riesgo_atraso": {"etiqueta": "alto", "valor": 0.664, "grados": {"bajo": 0.0, "medio": 0.304, "alto": 0.717}},
+    "riesgo_registrado_en_PG2": {"etiqueta": "medio", "valor": 0.505},
+    "reglas_difusas": [
+        {"id": "E-12d", "alfa": 1.0, "consecuente": "medio",
+         "enunciado": "SI criticidad del arrastre ES baja O media ENTONCES riesgo_atraso ES medio"},
+        {"id": "E-09d", "alfa": 0.781, "consecuente": "alto",
+         "enunciado": "SI hay arrastre Y proximidad ES (inminente O cercana) Y capacidad ES baja ENTONCES riesgo_atraso ES alto"}],
+    "arrastres": None,
+    "entradas_inferencia": {"peor_arrastre": "Tecnología para la Automatización", "arrastre": 1.0, "criticidad_alta": 0.018,
+                            "meses_regularidad_mas_proxima": 4.205, "capacidad_baja": 0.926},
+    "capacidad_disponible": {"horas_hipoteticas": 9.0, "horas_registradas": 25.0}}
+
+
+def test_m3_causa_en_la_simulacion_usa_las_entradas_de_la_regla():
+    c = causa_del_riesgo(RIESGO_JUAN_9H_REAL)
+    assert c["grado"] == 0.781
+    assert "que arrastrás Tecnología para la Automatización" in c["explicacion"]
+    assert "criticidad" not in c["explicacion"]            # E-09d usa «hay arrastre», no su criticidad (0,018)
+    assert "(4,2 meses)" in c["explicacion"] and "(9 h semanales en la simulación)" in c["explicacion"]
+
+
+def test_e2e04_aclaracion_en_la_misma_oracion_que_el_plan_no_es_falso_positivo():
+    p = paquete_m2(CAP_JUAN_COMPLETA, escenario_parcial={"aclaracion": "..."})
+    p["secciones"].append({"modulo": "M3", "tipo_decision": "riesgo_de_atraso_M3", "resultado": RIESGO_JUAN_9H})
+    borrador2 = ("Podés cursar hasta tres materias, pero con solo 9 h semanales solo se simuló el riesgo de atraso; la "
+                 "carga, la capacidad y el plan recomendado siguen siendo los de tu situación registrada, así que no se "
+                 "puede confirmar cuántas materias podrías cargar sin sobrecarga.")
+    assert "escenario_parcial" not in verificar(borrador2, p)
+
+
+def test_respaldo_con_escenario_parcial_empieza_por_la_aclaracion():
+    p = paquete_m2({**CAP_JUAN_COMPLETA, "lectura_guiada": ["La holgura es negativa (-6 h)."]},
+                   escenario_parcial={"aclaracion": "Solo el riesgo de atraso se simuló con 9 horas semanales."})
+    assert respaldo.respaldo(p).startswith("Solo el riesgo de atraso se simuló")
+
+
+def test_martina_confiabilidad_del_calculo_se_detecta():
+    mala = ("El riesgo de atraso es alto y la confiabilidad del cálculo es alta (valor 0,778). La regla que produce el "
+            "riesgo está en revisión, por lo que el valor podría variar ligeramente.")
+    assert len(verificar(mala, {"secciones": [], "contexto": {}}).get("certeza_inventada", [])) == 2
+    buena = ("Tu riesgo de atraso es alto. Los datos de tu historia académica tienen una confiabilidad alta (0,778), "
+             "pero el criterio que calcula el riesgo todavía está en revisión.")
+    assert "certeza_inventada" not in verificar(buena, {"secciones": [], "contexto": {}})

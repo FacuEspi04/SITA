@@ -126,6 +126,11 @@ def _corte(s: dict) -> list[str]:
 
 def respaldo(paquete: dict) -> str:
     lineas: list[str] = []
+    # Con horas hipotéticas, lo primero es aclarar qué se simuló y qué no (Render 18/11: el respaldo abría con la
+    # holgura registrada y dejaba la aclaración para el final, ante «¿cuántas materias puedo llevar con 9 h?»)
+    parcial = paquete.get("escenario_parcial")
+    if parcial and parcial.get("aclaracion"):
+        lineas.append(parcial["aclaracion"])
     for s in paquete.get("secciones", []):
         if "sin_datos" in s:
             lineas.append(s["sin_datos"])
@@ -144,9 +149,6 @@ def respaldo(paquete: dict) -> str:
             lineas += _m4(s)
         elif mod == "X":
             lineas += _corte(s)
-    parcial = paquete.get("escenario_parcial")
-    if parcial and parcial.get("aclaracion"):
-        lineas.append(parcial["aclaracion"])
     for n in paquete.get("no_evaluado", []):
         lineas.append(f"No evalué {n.get('descripcion')}: {n.get('motivo')}")
     if '"candidata"' in json.dumps(paquete.get("secciones"), ensure_ascii=False) or \

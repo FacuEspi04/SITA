@@ -283,8 +283,28 @@ def ejecutar(kb, intencion: str, p: dict) -> Seccion:
 
 # Entradas del sistema difuso SD-M3-RIESGO (E-08d a E-12d en la base): arrastre y su criticidad, proximidad de
 # vencimiento y capacidad disponible. La ruta crítica y los cuellos de botella NO son entradas de ese cálculo.
-ENTRADAS_RIESGO = (("arrastre", "la criticidad del arrastre"), ("proximidad", "la cercanía de los vencimientos"),
-                   ("capacidad", "la capacidad disponible"))
+
+
+def _entradas(antecedente: str, ev: dict, arrastres: list[str]) -> list[str]:
+    """Describe con los datos del caso cada entrada que usa la regla. Error real (Render 18/11, Juan 9 h): E-09d usa
+    «hay arrastre», no su criticidad, y decir «la criticidad del arrastre de Tecnología para la Automatización» (grado
+    0,018 de criticidad alta) llevó al LLM a repetirlo."""
+    ent = ev.get("entradas_inferencia") or {}
+    cap = ev.get("capacidad_disponible") or {}
+    de = f" de {_lista(arrastres)}" if arrastres else ""
+    out = []
+    if "criticidad del arrastre" in antecedente:
+        out.append(f"la criticidad del arrastre{de}")
+    elif "arrastre" in antecedente:
+        out.append(f"que arrastrás {_lista(arrastres)}" if arrastres else "que tenés una materia en arrastre")
+    if "proximidad" in antecedente:
+        meses = ent.get("meses_regularidad_mas_proxima")
+        out.append("la cercanía de tu próximo vencimiento"
+                   + (f" ({fmt_num(round(meses, 1))} meses)" if isinstance(meses, (int, float)) else ""))
+    if "capacidad" in antecedente:
+        h = cap.get("horas_hipoteticas")
+        out.append("tu capacidad disponible" + (f" ({fmt_num(h)} h semanales en la simulación)" if h is not None else ""))
+    return out
 
 
 def causa_del_riesgo(ev: dict) -> dict | None:
@@ -298,11 +318,13 @@ def causa_del_riesgo(ev: dict) -> dict | None:
         return None
     dom = max(reglas, key=lambda x: x["alfa"])
     texto = sin_acentos(dom.get("enunciado", "")).split("entonces")[0]
-    entradas = [desc for clave, desc in ENTRADAS_RIESGO if clave in texto]
     arrastres = [a.get("asignatura") for a in ev.get("arrastres") or [] if isinstance(a, dict) and a.get("asignatura")]
-    partes = [f"{d} de {_lista(arrastres)}" if "arrastre" in d and arrastres else d for d in entradas]
-    explicacion = (f"El riesgo de atraso {ra.get('etiqueta')} lo produce {_lista(partes) or 'la regla activada'} "
-                   f"(la regla de mayor activación, con grado {fmt_num(dom['alfa'])}).")
+    if not arrastres and (ev.get("entradas_inferencia") or {}).get("peor_arrastre"):
+        arrastres = [ev["entradas_inferencia"]["peor_arrastre"]]   # la simulación (Q5) trae solo el peor arrastre
+    partes = _entradas(texto, ev, arrastres)
+    explicacion = (f"El riesgo de atraso {ra.get('etiqueta')} sale sobre todo de {_lista(partes) or 'la regla activada'} "
+                   f"(es la regla que más se activó, con grado {fmt_num(dom['alfa'])}).")
+    entradas = partes
     if ev.get("ruta_critica") or ev.get("cuellos_de_botella"):
         explicacion += (" La ruta crítica y los cuellos de botella describen tu trayectoria, pero no son entradas de "
                         "este cálculo.")

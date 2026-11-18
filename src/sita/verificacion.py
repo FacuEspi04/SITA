@@ -433,12 +433,13 @@ def escenario_parcial(resp: str, paquete: dict) -> list[str]:
     # Corrida en Render (17/11): «Sí, podés llevar tres materias: …» como primera oración ante «si tuviera solo 9 horas,
     # ¿cuántas materias puedo llevar?». La aclaración llegaba recién al final; la respuesta directa era la registrada.
     oraciones = _oraciones(resp)
-    if oraciones:
-        primera = sin_acentos(oraciones[0])
-        if (re.search(r"\b(podes|vas a poder) (llevar|cursar|tomar)\b|\bmaterias\b", primera)
-                and not RE_NO_RECALCULADO.search(primera)
-                and not re.search(r"registrad|no se recalcul|situacion actual|hoy\b", primera)):
-            return ["abre respondiendo con el plan registrado como si fuera el resultado de las horas hipotéticas"]
+    # La primera oración va hasta el primer punto (no hasta el «;»): falso positivo real (Render 18/11) con «Podés cursar
+    # hasta tres materias, pero con solo 9 h solo se simuló el riesgo de atraso; la carga… siguen siendo los registrados».
+    primera = sin_acentos(re.split(r"(?<=[.!?])\s+|\n+", resp.strip(), maxsplit=1)[0]) if resp.strip() else ""
+    if (primera and re.search(r"\b(podes|vas a poder) (llevar|cursar|tomar)\b|\bmaterias\b", primera)
+            and not RE_NO_RECALCULADO.search(primera)
+            and not re.search(r"registrad|no se recalcul|situacion actual|hoy\b|solo se simulo", primera)):
+        return ["abre respondiendo con el plan registrado como si fuera el resultado de las horas hipotéticas"]
     for o in oraciones:
         so = sin_acentos(o)
         if RE_TEMA_REGISTRADO.search(so) and RE_NO_RECALCULADO.search(so):
@@ -471,6 +472,11 @@ def causa_de_capacidad(resp: str, paquete: dict) -> list[str]:
 
 
 RE_CERTEZA = re.compile(r"\b(certeza|certidumbre|nivel de seguridad|grado de seguridad)\b|"
+                        # Render 18/11, Martina: «la confiabilidad del cálculo es alta (0,778)» (es la del dato de la
+                        # historia) y «el valor podría variar ligeramente» (ningún dato dice cuánto)
+                        r"\bconfiabilidad (del|de este|de ese|de la) (calculo|resultado|riesgo|modelo|valor|analisis|"
+                        r"evaluacion|estimacion)\b|"
+                        r"\b(podria|puede|podrian|pueden) variar (ligeramente|levemente|un poco|apenas|poco|muy poco)\b|"
                         r"consider\w*(lo|la)? (bastante |muy |totalmente )?(fiable|confiable|segur[oa])|"
                         r"\b(el|tu) (riesgo|resultado|calculo|valor)[^.;]{0,30}\b(es|resulta) (bastante |muy )?"
                         r"(fiable|confiable|segur[oa])")
