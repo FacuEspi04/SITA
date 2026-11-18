@@ -106,3 +106,39 @@ def test_jerga_interna_de_m1_y_portugues_con_diacriticos():
     f = verificar("Según Q-LUCIA, la regla es candidata. Isso não é tudo.", paquete_plan())
     assert "jerga" in f and "idioma" in f
     assert "jerga" not in verificar("Te conviene rendir Física I; quedó empatada con otra candidata.", paquete_plan())
+
+
+# C-71 · Juan 9 h (Render 18/11): «Y si la dedicación de 9 horas fuera real…» se marcaba como letra suelta
+def test_y_al_comienzo_de_oracion_no_es_letra_suelta():
+    from sita.verificacion import letras_sueltas
+    assert letras_sueltas("Si podés, mantené más horas. Y si la dedicación fuera real, charlalo con el asesor.") == []
+    assert letras_sueltas("Y además tenés un arrastre.") == []
+    assert letras_sueltas("Te conviene: \n«Y si…»") == []
+
+
+def test_y_o_x_como_materia_se_siguen_marcando():
+    from sita.verificacion import letras_sueltas
+    assert letras_sueltas("Para cursar Y necesitás aprobar X.") == ["X", "Y"]
+    assert letras_sueltas("primero la materia Y, después la otra") == ["Y"]
+
+
+# C-72 · En la simulación (Q5) «grados» era la pertenencia del valor, no la activación de cada término (como en Q1)
+def test_simulacion_separa_activacion_y_pertenencia():
+    from sita.modulos.m3 import armar_evidencia
+    res = {"escenario_hipotetico": True,
+           "riesgo_atraso": {"valor": 0.664, "etiqueta": "alto",
+                             "grados": [{"etiqueta": "bajo", "mu": 0.0}, {"etiqueta": "medio", "mu": 0.304},
+                                        {"etiqueta": "alto", "mu": 0.717}]},
+           "reglas_difusas": [{"id": "E-12d", "consecuente": "medio", "alfa": 1.0},
+                              {"id": "E-09d", "consecuente": "alto", "alfa": 0.781}]}
+    ra = armar_evidencia(res)["riesgo_atraso"]
+    assert "grados" not in ra
+    assert ra["pertenencia_del_valor"] == {"bajo": 0.0, "medio": 0.304, "alto": 0.717}
+    assert ra["activacion_por_termino"] == {"medio": 1.0, "alto": 0.781}
+
+
+def test_riesgo_registrado_conserva_grados():
+    from sita.modulos.m3 import armar_evidencia
+    res = {"riesgo_atraso": {"valor": 0.505, "etiqueta": "medio",
+                             "grados": [{"etiqueta": "medio", "mu": 1.0}, {"etiqueta": "alto", "mu": 0.018}]}}
+    assert armar_evidencia(res)["riesgo_atraso"]["grados"] == {"medio": 1.0, "alto": 0.018}

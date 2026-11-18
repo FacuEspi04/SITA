@@ -238,11 +238,30 @@ def armar_evidencia(res: dict) -> dict:
     if ev.get("reglas_difusas"):
         ev["reglas_difusas"] = sorted([r for r in ev["reglas_difusas"] if (r.get("alfa") or 0) >= 0.05],
                                       key=lambda r: -r["alfa"])
+    _aclarar_grados_simulados(ev)
     for lista in ("urgencias", "regularidades"):
         for u in ev.get(lista) or []:
             if isinstance(u.get("meses_para_vencer"), (int, float)):
                 u["meses_para_vencer"] = round(u["meses_para_vencer"], 1)
     return ev
+
+
+def _aclarar_grados_simulados(ev: dict) -> None:
+    """Q1 trae en «grados» la activación de cada término (relación ACTIVA de PG2: el α máximo de las reglas
+    que lo concluyen). Q5 calculaba con el mismo nombre otra cosa: cuánto pertenece el valor simulado a cada
+    término. En la simulación se separan las dos magnitudes para que no se confundan (C-72): por ejemplo,
+    con 9 h «alto» se activa con 0,781 (E-09d) y el valor 0,664 pertenece a «alto» con 0,717."""
+    ra = ev.get("riesgo_atraso")
+    if not (ev.get("escenario_hipotetico") and isinstance(ra, dict) and "grados" in ra):
+        return
+    ra["pertenencia_del_valor"] = ra.pop("grados")
+    act: dict[str, float] = {}
+    for r in ev.get("reglas_difusas") or []:
+        t, a = r.get("consecuente"), r.get("alfa")
+        if t and isinstance(a, (int, float)):
+            act[t] = max(act.get(t, 0.0), a)
+    if act:
+        ra["activacion_por_termino"] = act
 
 
 # ------------------------------------------------------------------ ejecución

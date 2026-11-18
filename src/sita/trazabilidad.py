@@ -59,7 +59,12 @@ def _evidencia(sec: dict) -> list[str]:
     elif sec["modulo"] == "M3":
         ra = r.get("riesgo_atraso") or {}
         if ra:
-            ev.append(f"riesgo de atraso {ra.get('etiqueta')} ({fmt_num(ra.get('valor'))}), grados {ra.get('grados')}")
+            if "pertenencia_del_valor" in ra:   # simulación (Q5, C-72)
+                ev.append(f"riesgo de atraso simulado {ra.get('etiqueta')} ({fmt_num(ra.get('valor'))}), "
+                          f"activación por término {ra.get('activacion_por_termino')}, "
+                          f"pertenencia del valor a cada término {ra.get('pertenencia_del_valor')}")
+            else:
+                ev.append(f"riesgo de atraso {ra.get('etiqueta')} ({fmt_num(ra.get('valor'))}), grados {ra.get('grados')}")
         for x in r.get("reglas_difusas") or []:
             ev.append(f"{x.get('id')} activada con α = {fmt_num(x.get('alfa'))}")
         for a in r.get("asignaturas") or []:

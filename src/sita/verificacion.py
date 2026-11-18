@@ -788,6 +788,17 @@ def reserva_omitida(resp: str, paquete: dict) -> list[str]:
     return ["la historia académica tiene reserva y la respuesta no lo menciona"]
 
 
+def letras_sueltas(resp: str) -> list[str]:
+    """Materias nombradas con «X» o «Y». La «Y» mayúscula al empezar una oración es la conjunción
+    («Y si la dedicación fuera real…»), no una variable: no se marca (C-71)."""
+    hallados = set(re.findall(r"(?<![\w-])X(?![\w-])", resp))
+    for m in re.finditer(r"(?<![\w-])Y(?![\w-])", resp):
+        antes = resp[:m.start()].rstrip(" \t\"'«(¡¿*")
+        if antes and antes[-1] not in ".!?:;\n…":
+            hallados.add("Y")
+    return sorted(hallados)
+
+
 def verificar(respuesta: str, paquete: dict, ids_en_cuerpo: bool = False) -> dict[str, list[str]]:
     """Devuelve solo los controles que fallaron (dict vacío = respuesta verificada)."""
     r = limpiar_texto(respuesta)
@@ -798,7 +809,7 @@ def verificar(respuesta: str, paquete: dict, ids_en_cuerpo: bool = False) -> dic
         "ids_sin_respaldo": ids_sin_respaldo(r, paquete),
         "ids_en_cuerpo": [] if ids_en_cuerpo else sorted(set(RE_REGLA.findall(r)) | set(RE_CORRELATIVIDAD.findall(r))),
         "correlatividad_como_regla": correlatividad_como_regla(r),
-        "letras_sueltas": sorted(set(re.findall(r"(?<![\w-])[XY](?![\w-])", r))),
+        "letras_sueltas": letras_sueltas(r),
         "orden_de_destrabe": orden_de_destrabe(r, paquete),
         "tipo_de_decision": tipo_de_decision(r, paquete),
         "cobertura_normativa": cobertura_normativa(r, paquete),
