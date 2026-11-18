@@ -164,3 +164,63 @@ def test_espera_429_lee_el_mensaje_de_groq():
     from sita.llm import LLM
     r = SimpleNamespace(headers={}, text="Rate limit reached. Please try again in 1m7.5s.")
     assert LLM._espera_429(r) == 68.5
+
+
+class _Resp:
+    def __init__(self, status, datos):
+        self.status_code, self._datos, self.headers, self.text = status, datos, {}, str(datos)
+
+    def json(self):
+        return self._datos
+
+
+def _llm_anthropic(tmp_path, monkeypatch, respuestas, modelo="claude-sonnet-5-5"):
+    from dataclasses import replace
+    from sita import llm as modulo
+    enviados = []
+
+    def post(url, headers=None, json=None, timeout=None):
+        enviados.append({**json})
+        return respuestas.pop(0)
+
+    monkeypatch.setattr(modulo.requests, "post", post)
+    cfg = replace(config(tmp_path), llm_provider="anthropic", llm_model=modelo, llm_api_key="x")
+    return modulo.LLM(cfg), enviados
+
+
+def _texto(t, motivo="end_turn"):
+    return _Resp(200, {"content": [{"type": "thinking", "thinking": ""}, {"type": "text", "text": t}],
+                       "stop_reason": motivo})
+
+
+def test_anthropic_sin_temperatura_y_con_esfuerzo_por_tarea(tmp_path, monkeypatch):
+    llm, enviados = _llm_anthropic(tmp_path, monkeypatch, [_texto('{"ok": 1}'), _texto("Explicación")])
+    assert llm.chat("s", "u", json_mode=True, max_tokens=1500) == '{"ok": 1}'
+    assert llm.chat("s", "u", max_tokens=4000) == "Explicación"
+    assert all("temperature" not in b for b in enviados)
+    assert [b["output_config"]["effort"] for b in enviados] == ["low", "medium"]
+    assert all(b["max_tokens"] >= 16000 for b in enviados)  # el razonamiento usa el mismo presupuesto
+
+
+def test_anthropic_respuesta_vacia_duplica_el_presupuesto(tmp_path, monkeypatch):
+    vacia = _Resp(200, {"content": [{"type": "thinking", "thinking": ""}], "stop_reason": "max_tokens"})
+    llm, enviados = _llm_anthropic(tmp_path, monkeypatch, [vacia, _texto("Listo")])
+    assert llm.chat("s", "u") == "Listo"
+    assert enviados[1]["max_tokens"] == 2 * enviados[0]["max_tokens"]
+
+
+def test_anthropic_modelo_sin_effort_reintenta_sin_el(tmp_path, monkeypatch):
+    rechazo = _Resp(400, {"error": {"message": "output_config.effort: not supported on this model"}})
+    llm, enviados = _llm_anthropic(tmp_path, monkeypatch, [rechazo, _texto("Hola"), _texto("Otra")],
+                                   modelo="claude-haiku-4-5")
+    assert llm.chat("s", "u") == "Hola"
+    assert llm.chat("s", "u") == "Otra"
+    assert "output_config" in enviados[0] and "output_config" not in enviados[1] and "output_config" not in enviados[2]
+
+
+def test_anthropic_rechazo_da_error_claro(tmp_path, monkeypatch):
+    import pytest
+    from sita.llm import ErrorLLM
+    llm, _ = _llm_anthropic(tmp_path, monkeypatch, [_Resp(200, {"content": [], "stop_reason": "refusal"})])
+    with pytest.raises(ErrorLLM, match="declinó"):
+        llm.chat("s", "u")

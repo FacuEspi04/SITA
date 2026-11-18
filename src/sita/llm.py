@@ -5,7 +5,8 @@ Alternativas sin cambiar código: Ollama local (M2) o Anthropic (M3), con LLM_PR
 Incluye los manejos que cada integrante resolvió por separado:
   - 429 del plan gratuito: espera lo que indica el proveedor y reintenta (M1, M2, M4);
   - respuesta vacía de un modelo con razonamiento: duplica el presupuesto de tokens (M3, M4);
-  - modelos que no aceptan temperatura: reintenta sin ella (M3).
+  - Anthropic: sin `temperature` (los modelos actuales la rechazan) y con esfuerzo de razonamiento
+    bajo para enrutar y medio para explicar (C-70).
 """
 from __future__ import annotations
 
@@ -49,7 +50,7 @@ class LLM:
         if self.proveedor != "ollama" and not cfg.llm_api_key:
             raise ErrorLLM("Falta la clave del LLM (LLM_API_KEY o GROQ_API_KEY en el .env).")
         self.ultimo: dict = {}
-        self._sin_temperatura = False
+        self._sin_esfuerzo = False
 
     @property
     def nombre(self) -> str:
@@ -61,7 +62,7 @@ class LLM:
         if self.proveedor == "ollama":
             return self._ollama(system, user, json_schema or json_mode)
         if self.proveedor == "anthropic":
-            return self._anthropic(system, user, max_tokens)
+            return self._anthropic(system, user, json_mode or json_schema is not None, max_tokens)
         return self._openai(system, user, json_mode, max_tokens)
 
     # ------------------------------------------------------------------ proveedores
@@ -135,18 +136,32 @@ class LLM:
             raise ErrorLLM(f"Ollama respondió {r.status_code}: {r.text[:300]}")
         return limpiar_texto(r.json()["message"]["content"])
 
-    def _anthropic(self, system: str, user: str, max_tokens: int) -> str:
+    def _anthropic(self, system: str, user: str, json_mode: bool, max_tokens: int) -> str:
+        """Los modelos actuales de Claude rechazan `temperature` (400) y razonan siempre: el razonamiento
+        consume el mismo `max_tokens`, así que el presupuesto se amplía (solo se cobra lo que se usa) y el
+        esfuerzo se fija según la tarea: bajo para enrutar, medio para explicar."""
+        url = "https://api.anthropic.com/v1/messages"
         headers = {"x-api-key": self.cfg.llm_api_key, "anthropic-version": "2023-06-01"}
-        body = {"model": self.modelo, "max_tokens": max_tokens, "system": system,
+        body = {"model": self.modelo, "max_tokens": max(max_tokens, 16000), "system": system,
                 "messages": [{"role": "user", "content": user}]}
-        if not self._sin_temperatura:
-            body["temperature"] = 0
-        try:
-            datos = self._post("https://api.anthropic.com/v1/messages", headers, body)
-        except ErrorLLM as exc:
-            if "temperature" not in str(exc) or self._sin_temperatura:
-                raise
-            self._sin_temperatura = True
-            body.pop("temperature", None)
-            datos = self._post("https://api.anthropic.com/v1/messages", headers, body)
-        return limpiar_texto("".join(b.get("text", "") for b in datos["content"] if b.get("type") == "text"))
+        if not self._sin_esfuerzo:
+            body["output_config"] = {"effort": "low" if json_mode else "medium"}
+        for _ in range(3):
+            try:
+                datos = self._post(url, headers, body)
+            except ErrorLLM as exc:
+                # modelos anteriores (p. ej. Haiku 4.5) no aceptan `effort`: se reintenta sin él
+                if "effort" not in str(exc) or "output_config" not in body:
+                    raise
+                self._sin_esfuerzo = True
+                body.pop("output_config")
+                datos = self._post(url, headers, body)
+            motivo = datos.get("stop_reason")
+            self.ultimo = {"finish_reason": motivo, "uso": datos.get("usage")}
+            if motivo == "refusal":
+                raise ErrorLLM(f"{self.nombre} declinó responder la consulta (stop_reason «refusal»).")
+            texto = limpiar_texto("".join(b.get("text", "") for b in datos["content"] if b.get("type") == "text"))
+            if texto:
+                return texto
+            body["max_tokens"] *= 2  # el razonamiento agotó el presupuesto antes de escribir
+        raise ErrorLLM("El modelo devolvió una respuesta vacía.")
