@@ -61,8 +61,9 @@ INSTRUCCION = {
                        "o poco confiables), no a la habilitación ni a las correlativas"),
     "desglose_incompleto": ("si desglosás la carga, incluí todos sus componentes (también las horas de asignaturas "
                             "anuales en curso, nombrando cada una) para que la suma dé el total"),
-    "escenario_parcial": ("aclará que solo el riesgo de atraso se simuló con esas horas: la carga y el plan son los de tu "
-                          "situación registrada y no se recalcularon"),
+    "escenario_parcial": ("EMPEZÁ la respuesta con la aclaración, antes de nombrar materias: con esas horas solo se "
+                          "simuló el riesgo de atraso; la carga, la capacidad, el plan y la cantidad de materias son los "
+                          "de tu situación registrada y no se recalcularon. No abras con «podés llevar N materias»"),
     "causa_de_capacidad": ("la capacidad es la dedicación sostenible menos las horas de trabajo; el ajuste por sobrecarga "
                            "recorta materias del plan, no la capacidad"),
     "certeza_inventada": ("un grado difuso no es un nivel de certeza ni de fiabilidad; la confiabilidad es la calidad de "
@@ -82,6 +83,7 @@ RE_PORTUGUES = re.compile(r"[ãõç]|\b(você|vocês|não|também|então|ainda|i
 RE_JERGA_INTERNA = re.compile(r"\b(Q-[A-Z0-9-]+|ConfiabilidadDato|contexto\s*M1|bajo\s+supuesto)\b"
                               r"|\balcance:?\s+(cursar|rendir)\b"
                               r"|\betiqueta:?\s+(alt|medi|baj)[oa]\b"
+                              r"|\(M[1-4]\)"
                               r"|\b(regla|criterio|estado|condicion)\s+(es\s+|esta\s+)?candidat\w*", re.I)
 RE_INGLES = re.compile(r"\b(the|you|your|cannot|with|because|and)\b", re.I)
 RE_NEGACION = re.compile(r"\b(no|ni|sin|tampoco|ningun\w*)\b")
@@ -675,6 +677,9 @@ def etiqueta_inventada(resp: str, paquete: dict) -> list[str]:
             dicha = m.group(1)
             contexto = t[max(0, m.start() - 30):m.end()]
             if re.search(r"\bno (es|esta|tiene|hay|puede|se (puede|considera)|alcanza)|\bsin\b|ni (alta|media|baja)", contexto):
+                continue
+            # «el riesgo de atraso bajo 9 h es alto»: «bajo» como preposición (falso positivo real, Render 18/11)
+            if dicha == "bajo" and re.match(r"\s*(\d|esas?|esos?|estas?|estos?|las?|los?|tu|tus|un|una)\b", t[m.end():]):
                 continue
             validas = {e[:4] for e in etiquetas.get(k, set())}
             if dicha[:4] not in validas:

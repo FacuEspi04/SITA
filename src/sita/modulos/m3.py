@@ -322,8 +322,8 @@ def causa_del_riesgo(ev: dict) -> dict | None:
     if not arrastres and (ev.get("entradas_inferencia") or {}).get("peor_arrastre"):
         arrastres = [ev["entradas_inferencia"]["peor_arrastre"]]   # la simulación (Q5) trae solo el peor arrastre
     partes = _entradas(texto, ev, arrastres)
-    explicacion = (f"El riesgo de atraso {ra.get('etiqueta')} sale sobre todo de {_lista(partes) or 'la regla activada'} "
-                   f"(es la regla que más se activó, con grado {fmt_num(dom['alfa'])}).")
+    explicacion = (f"El riesgo de atraso {ra.get('etiqueta')} sale sobre todo de {_lista(partes) or 'la regla activada'}: "
+                   f"es la regla que más se activó, con grado {fmt_num(dom['alfa'])}.")
     entradas = partes
     if ev.get("ruta_critica") or ev.get("cuellos_de_botella"):
         explicacion += (" La ruta crítica y los cuellos de botella describen tu trayectoria, pero no son entradas de "

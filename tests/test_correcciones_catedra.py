@@ -467,3 +467,24 @@ def test_martina_confiabilidad_del_calculo_se_detecta():
     buena = ("Tu riesgo de atraso es alto. Los datos de tu historia académica tienen una confiabilidad alta (0,778), "
              "pero el criterio que calcula el riesgo todavía está en revisión.")
     assert "certeza_inventada" not in verificar(buena, {"secciones": [], "contexto": {}})
+
+
+# ------------------------------------------------------------------ séptima revisión (Render 18/11, tras C-68)
+def test_e2e04_apertura_sugerida_pasa_y_las_reales_se_rechazan():
+    p = paquete_m2(CAP_JUAN_COMPLETA, escenario_parcial={"aclaracion": "..."})
+    p["secciones"].append({"modulo": "M3", "tipo_decision": "riesgo_de_atraso_M3", "resultado": RIESGO_JUAN_9H})
+    sugerida = ("Con 9 horas por semana solo se simuló tu riesgo de atraso: la cantidad de materias y el plan no se "
+                "recalcularon. Con tu situación registrada, el plan es de 3 materias. En la simulación tu riesgo de "
+                "atraso pasaría de medio a alto.")
+    assert "escenario_parcial" not in verificar(sugerida, p)
+    for real in ("Podés llevar tres materias: Simulación (para rendir), Tecnología para la Automatización e "
+                 "Inteligencia Artificial.", "Sí, podés llevar tres materias: Simulación (para rendir)."):
+        assert "escenario_parcial" in verificar(real + " La carga y el plan son los registrados.", p)
+
+
+def test_bajo_como_preposicion_no_es_etiqueta_y_modulos_entre_parentesis_son_jerga():
+    p = {"contexto": {}, "secciones": [{"modulo": "M3", "resultado": RIESGO_JUAN_9H}]}
+    fallas = verificar("La historia es confiable, pero el riesgo de atraso bajo 9 h es alto (M3).", p)
+    assert "etiqueta_inventada" not in fallas
+    assert any("(M3)" in x for x in fallas.get("jerga", []))
+    assert "etiqueta_inventada" in verificar("Tu riesgo de atraso es bajo.", p)
